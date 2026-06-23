@@ -1,7 +1,9 @@
 model:
-  name: "qwen2.5:3b"   # best on eval set: recall-on-CLAIM 0.81 / precision 0.96 (gemma2:2b: 0.75 / 0.86)
+  name: "qwen2.5:3b"   # leak-free eval: recall 0.938 single-post / 0.750 batch-16; precision ~0.70
   temperature: 0.0     # deterministic output for consistent classification
-  llm_batch_size: 16   # posts per LLM request — amortizes the few-shot prompt
+  llm_batch_size: 1    # single-post: batching 16/call cost ~0.19 recall (3B model drifts).
+                       # 1/call hits the 0.90 recall target but is ~16x more calls — run the
+                       # backlog on GPU/Colab. Raise (e.g. 4) only to trade recall for speed.
 
 embedding:
   model_name: "all-MiniLM-L6-v2"   # sentence-transformers; higher MTEB STS scores than nomic-embed-text
