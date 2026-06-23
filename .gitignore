@@ -1,0 +1,25 @@
+# Secrets — never commit
+.env
+.env.*
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Scraped / generated data (keep out of the repo)
+data/*.db
+data/*.parquet
+data/*.csv
+*.bak
+
+# Leftover Colab round-trip artifacts (transient)
+/classifications_result.csv
+/unclassified_posts.csv
+tmp/
+
+# OS
+.DS_Store
+
+# Exception: the labeled eval set IS tracked (core project benchmark)
+!data/claim_eval.csv

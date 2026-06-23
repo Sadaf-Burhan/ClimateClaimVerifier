@@ -1,0 +1,100 @@
+model:
+  name: "qwen2.5:3b"   # best on eval set: recall-on-CLAIM 0.81 / precision 0.96 (gemma2:2b: 0.75 / 0.86)
+  temperature: 0.0     # deterministic output for consistent classification
+  llm_batch_size: 16   # posts per LLM request — amortizes the few-shot prompt
+
+embedding:
+  model_name: "all-MiniLM-L6-v2"   # sentence-transformers; higher MTEB STS scores than nomic-embed-text
+
+evaluation:
+  claim_eval_csv: data/claim_eval.csv   # hand-labeled eval set (60 posts, stratified by category + post type)
+  claim_recall_target: 0.90             # success criterion — a missed claim (FN) is the costly, unrecoverable error
+
+ingestion:
+  interval_hours: 24
+  bluesky_limit: 100          # max posts per keyword per run
+  gdelt_days_back: 1          # how many days back to query GDELT
+  gdelt_delay_seconds: 10     # delay between GDELT requests (rate limit)
+  gdelt_retries: 3
+
+  keywords:
+
+    # --- Scientific / Factual ---
+    # Legitimate climate science terms — expected to return credible posts
+    scientific:
+      - "climate change"
+      - "global warming"
+      - "atmospheric river"
+      - "polar vortex"
+      - "arctic meltdown"
+      - "sea level rise"
+      - "permafrost thaw"
+      - "ice sheet collapse"
+      - "greenland melt"
+      - "antarctica melting"
+      - "carbon capture"
+      - "geoengineering"
+      - "solar radiation management"
+      - "climate tipping point"
+
+    # --- Extreme Weather Events ---
+    # Real events that generate both accurate reporting and misinformation
+    extreme_events:
+      - "wildfire smoke"
+      - "flood warning"
+      - "tornado warning"
+      - "hurricane warning"
+      - "heat dome"
+      - "record heatwave"
+      - "mega drought"
+      - "superstorm"
+      - "methane bomb"
+      - "climate refugees"
+
+    # --- Sensationalist / Exaggerated ---
+    # Emotionally charged language — may be real events grossly overstated
+    sensationalist:
+      - "climate emergency"
+      - "climate catastrophe"
+      - "climate collapse"
+      - "runaway warming"
+      - "point of no return"
+      - "mass extinction climate"
+      - "ocean boiling"
+      - "blue ocean event"
+      - "sea level surge"
+      - "hyper hurricane"
+      - "jet stream collapse"
+      - "permafrost explosion"
+      - "climate bomb"
+
+    # --- Conspiracy / Misinformation Targets ---
+    # Searches designed to pull in false or manipulative claims
+    conspiracy:
+      - "climate hoax"
+      - "climate data cover-up"
+      - "weather manipulation proof"
+      - "cloud seeding"
+      - "HAARP weather control"
+      - "chemtrails climate"
+      - "climate lockdowns"
+      - "net zero agenda"
+      - "carbon tax conspiracy"
+      - "geoengineering secret program"
+      - "climate scientists hiding"
+
+    # --- Compound Searches ---
+    # Multi-term queries targeting specific misinformation narratives
+    combinations:
+      - "methane bomb extinction"
+      - "geoengineering secret program"
+      - "climate lockdowns government control"
+      - "antarctica melting scientists hiding"
+      - "weather manipulation proof"
+      - "climate hoax government agenda"
+      - "chemtrails weather control"
+
+storage:
+  db_path: data/ingested.db   # SQLite database
+  hot_window_days: 7
+  cold_window_days: 30

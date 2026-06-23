@@ -1,0 +1,159 @@
+# Week 5 LoRA / Fine-Tuning With Adapters - Implementation Specs
+
+approach:
+  summary: >
+    Train a LoRA adapter on qwen2.5:3b to fix the false_but_checkable and
+    denial_with_statistic false negatives that prompt engineering provably
+    could not reach, then load it back into the Ollama pipeline and evaluate
+    head-to-head against the 0.854 prompt baseline on the unchanged 100-row eval set.
+
+  decisions:
+    task_type:
+      choice: Binary classification (claim / opinion); CoT `thought` is internal scaffolding only.
+      reasoning: >
+        The tuned target is the has_claim label. The thought field exists to
+        improve the label, is never scored, so the adapter is trained to produce
+        the label, not the reasoning.
+
+    why_lora:
+      choice: Escalate to LoRA only after a targeted prompt fix failed on the specific categories.
+      reasoning: >
+        A "checkability is not evidence" instruction lifted aggregate recall
+        0.833 -> 0.854 but left false_but_checkable (2/6 FN) and denial_with_stat
+        (1/2 FN) unchanged. The model evaded the instruction by swapping its stated
+        justification ("without evidence" -> "vague"/"unverified") while keeping the
+        wrong label. An explicit instruction naming the failure could not dislodge it,
+        which is evidence the bias is in the weights, not the prompt.
+
+    baseline_to_beat:
+      choice: recall-on-CLAIM = 0.750 (qwen2.5:3b + tuned, LEAK-FREE prompt), same prompt kept at inference.
+      reasoning: >
+        The honest held-out baseline is 0.750, not 0.854. The earlier 0.854 (and the
+        course folder's 0.938) were inflated by eval-set leakage: few-shot examples
+        that were themselves eval posts. After replacing the 5 leaked CCV examples with
+        synthetic non-eval posts, recall is 0.750. LoRA changes the weights, not the
+        prompt — the leak-free prompt structure (system persona + definitions +
+        "checkability is not evidence"; user message with 8 leak-free few-shot examples
+        + JSON format example; thought-first batch schema) stays as the inference-time
+        prompt so the comparison isolates the adapter.
+
+    base_model:
+      choice: Adapter trains on qwen2.5:3b (the current model). No model swap.
+      reasoning: >
+        Comparison must be base vs base+adapter so any delta is attributable to
+        the adapter, not a different base model.
+
+    training_label_format:
+      choice: Train on input -> {has_claim, reason} only; keep CoT thought as prompt scaffolding.
+      reasoning: >
+        thought is not evaluated, so including it in training targets adds noise
+        and output tokens without improving the scored metric. Label-only keeps
+        training simple and the target aligned with what is measured.
+
+    inference_path:
+      choice: Convert the merged adapter to GGUF and load via an Ollama Modelfile (preferred over transformers).
+      reasoning: >
+        The rest of the pipeline (classify_batch, evaluate.py) calls Ollama and
+        relies on its guaranteed-JSON structured output. GGUF + Ollama keeps every
+        downstream stage unchanged; only the model name in config.yaml changes.
+
+    training_hardware:
+      choice: Train with PEFT/LoRA on Google Colab T4 GPU; no local GPU available.
+      reasoning: >
+        LoRA training is GPU-bound. Reuse the existing tmp/colab/ export-import
+        workflow already built for classification.
+
+tasks:
+  task_1_teacher_label_training_set:
+    name: Build a leakage-free, teacher-labeled training set
+    details: |
+      Write scripts/build_lora_trainset.py that:
+      - Pulls unlabeled posts from data/ingested.db, EXCLUDING every row with
+        in_eval_set=1 (hard leakage guard).
+      - Cross-checks post_text against the 56 synthetic eval rows in
+        data/claim_eval.csv and drops any duplicates (second leakage guard).
+      - Oversamples posts matching the failing categories (conspiracy /
+        sensationalist keyword_category, and posts that look false-but-checkable
+        or denial-with-statistic) so the adapter sees the target boundary.
+      - Labels each post with the teacher model gemma4:latest using the SAME
+        claim/opinion definition as the classifier (week 4 notebook cells 45-46
+        pattern). Store {text, label} (and optionally the teacher reason).
+      - Writes ~500-1500 examples to tmp/colab/lora_trainset.csv (gitignored).
+      - Prints the label balance and the count of oversampled hard-category rows.
+
+  task_2_train_adapter_colab:
+    name: Train the LoRA adapter on Colab
+    details: |
+      In a Colab notebook (adapt week5_fine_tuning_with_adapters.ipynb):
+      - Load qwen2.5:3b base weights, attach a LoRA adapter via PEFT
+        (target attention projections; small rank, e.g. r=8-16).
+      - Format each training row as the SAME system+user prompt used at inference,
+        with the assistant target = the JSON label {has_claim, reason}.
+      - Train for a few epochs on the T4; watch eval loss for overfitting.
+      - Save the adapter, then MERGE it into the base and export.
+      - Download the merged model back via tmp/colab/.
+
+  task_3_convert_and_register_ollama:
+    name: Convert merged model to GGUF and register in Ollama
+    details: |
+      - Convert the merged model to GGUF (llama.cpp convert) and quantize.
+      - Write an Ollama Modelfile (FROM the GGUF) and `ollama create
+        qwen2.5-3b-claim-lora -f Modelfile`.
+      - Add the new model name under model.name in
+        src/climate_verifier/config.yaml (or pass --model on the CLI) so the
+        existing pipeline uses it with no other change.
+
+  task_4_evaluate_head_to_head:
+    name: Evaluate base+adapter vs the 0.854 prompt baseline
+    details: |
+      - Run: uv run python -m climate_verifier.pipeline.evaluate --model qwen2.5-3b-claim-lora
+      - Compare recall-on-CLAIM and the by_post_type breakdown against the 0.854
+        baseline on the SAME unchanged 100-row eval set.
+      - Record FN on false_but_checkable and denial_with_stat (the primary signal),
+        precision-on-CLAIM (guardrail 1), and scientific / extreme_events error
+        rates (guardrail 2, catastrophic forgetting).
+
+integration_steps:
+  - The inference prompt does not change — the 0.854 prompt in claim_classifier.py
+    stays exactly as is; LoRA changes weights only.
+  - Only src/climate_verifier/config.yaml model.name changes to the new Ollama
+    model (qwen2.5-3b-claim-lora), so classify_batch, classify, classify_pending,
+    and evaluate.py all pick it up with no code change.
+  - Training/labeling artifacts stage through tmp/colab/ (gitignored); no eval
+    data or in_eval_set=1 posts may enter the training set.
+  - Evaluate with the existing harness: uv run python -m climate_verifier.pipeline.evaluate --model qwen2.5-3b-claim-lora
+
+evaluation_plan:
+  metrics: [recall_on_claim, precision_on_claim, false_negatives_by_post_type, error_rate_by_keyword_category]
+  dataset_size: 100
+  baseline: qwen2.5:3b + leak-free tuned prompt, recall-on-CLAIM = 0.750 (same eval set, unchanged; few-shot examples disjoint from eval)
+
+reference_materials:
+  notebook: notebooks/week5_fine_tuning_with_adapters.ipynb
+
+success_criteria:
+  minimum: >
+    recall-on-CLAIM >= 0.750 (does not regress vs the leak-free prompt baseline) AND
+    precision-on-CLAIM does not collapse (stays near 0.706) AND scientific /
+    extreme_events error rates do not regress.
+  good: >
+    False negatives drop on BOTH false_but_checkable (currently 3/6 FN on held-out
+    data) and denial_with_stat (1/2 FN) — the categories where a clean prompt with
+    the "checkability is not evidence" rule still fails — lifting recall-on-CLAIM
+    toward the 0.90 target without sacrificing precision or the already-solved categories.
+
+verification:
+  cli:
+    - "Build the training set: uv run python scripts/build_lora_trainset.py — confirm it prints label balance and that 0 rows have in_eval_set=1 (leakage guard passed)."
+    - "After Colab training + GGUF conversion: ollama list — confirm qwen2.5-3b-claim-lora is registered."
+    - "Run head-to-head eval: uv run python -m climate_verifier.pipeline.evaluate --model qwen2.5-3b-claim-lora — confirm recall-on-CLAIM is printed and compare the by_post_type FN counts for false_but_checkable and denial_with_stat against the 0.854 baseline."
+  streamlit:
+    - "Start the app: uv run streamlit run app.py and open http://localhost:8501"
+    - "Before the adapter is trained and registered, the app should still run on the current model and show the 0.854-baseline classifications — not crash. Switching models is a config change, so the UI degrades gracefully."
+    - "After registering qwen2.5-3b-claim-lora and updating config.yaml model.name, re-run a classification batch in the app and confirm posts are still classified into claim/opinion with reasons (the adapter changes labels, not the UI)."
+    - "A correct result: the dashboard surfaces claims it previously missed (e.g. false-but-checkable / denial-with-statistic style posts now labeled claim) with no format errors."
+
+known_pitfalls:
+  - "Raw model.generate() does not enforce JSON format — unlike Ollama which guarantees valid JSON output. If you evaluate the adapter via transformers/PEFT during Colab testing (instead of through Ollama), the adapter may emit preamble text, trailing text, or truncated JSON. Fix: extract the JSON object from the raw output using re.search(r'\\{.*\\}', output, re.DOTALL) before calling json.loads(), or use constrained decoding. The production path (GGUF + Ollama) enforces JSON automatically, so prefer it for the scored eval."
+  - "Data leakage is the silent failure: if a single in_eval_set=1 post or one of the 56 synthetic eval rows enters the training set, the post-LoRA recall is invalid. Verify the build_lora_trainset.py leakage guards before training."
+  - "Catastrophic forgetting: LoRA can degrade the categories that already work (scientific, extreme_events near 0% error). Always check those in the by_post_type breakdown, not just aggregate recall."
