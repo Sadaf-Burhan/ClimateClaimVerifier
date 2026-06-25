@@ -20,3 +20,7 @@
 {"text": "This heat is unbearable, I just want it to stop", "has_claim": false, "thought": "Pure emotional reaction, nothing checkable", "reason": "Emotional reaction, nothing checkable"}
 {"text": "Honestly the climate debate is exhausting to follow", "has_claim": false, "thought": "Personal feeling about the discourse, nothing checkable", "reason": "Personal feeling, nothing checkable"}
 {"text": "Maybe the planet just goes through cycles, who's to say", "has_claim": false, "thought": "Vague speculation, no specific checkable assertion", "reason": "Vague speculation, nothing specific"}
+{"text": "Sea levels rose 3mm last year and the government still calls it a crisis, what a scam", "has_claim": true, "thought": "Hostile framing but cites a specific measurement — checkable", "reason": "Embedded checkable measurement despite denial framing"}
+{"text": "They claim the Arctic lost 12% of its ice since 2010, total fabrication to scare us", "has_claim": true, "thought": "Denial tone but a specific statistic and timeframe — checkable", "reason": "Specific statistic despite hostile framing"}
+{"text": "NOAA logged 18 named storms this season but it's all manufactured panic", "has_claim": true, "thought": "Dismissive tone but names a source and a count — checkable", "reason": "Named source and count despite dismissal"}
+{"text": "It hit 40C downtown on Tuesday yet they pretend there's no emergency, lies", "has_claim": true, "thought": "Hostile framing but a specific temperature, place, day — checkable", "reason": "Specific measurement despite denial framing"}
