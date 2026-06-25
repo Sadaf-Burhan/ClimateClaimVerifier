@@ -142,7 +142,7 @@ Social Media Posts (Bluesky + GDELT)
 
 A single accuracy number treats those two errors as equal. They are not — so accuracy is reported for continuity, but it is not the pass/fail criterion.
 
-**Evaluation set.** `data/claim_eval.csv` contains 60 hand-labeled posts with human-verified claim/opinion labels, stratified two ways:
+**Evaluation set.** `data/claim_eval.csv` contains 100 hand-labeled posts (44 real, 56 synthetic) with human-verified claim/opinion labels, stratified two ways:
 
 1. **By `keyword_category`** — all five ingestion categories (`scientific`, `extreme_events`, `sensationalist`, `conspiracy`, `combinations`), so the eval mirrors what the pipeline actually ingests.
 2. **By `post_type`** — the linguistic shape of the post: `official_alert`, `news_event`, `scientific_finding`, `false_but_checkable` (conspiracy assertions that are structurally claims), `denial_with_stat` (hostile rants with an embedded checkable fact), `mixed_emotion_fact` (emotional posts wrapped around an official warning), `sarcasm_joke`, `hyperbole_doom`, `political_viewpoint`, `vague_conspiracy`, `emotional_reaction`, `rhetorical_question`.
@@ -284,8 +284,62 @@ Twenty embedding pairs in `data/embedding_pairs.csv` — 10 similar and 10 dissi
 
 Results: similar mean 0.64, dissimilar mean 0.21, separation 0.43. All targets met.
 
+---
+
+## Week 5 — Fine-Tuning with LoRA Adapters
+
+### The corrected journey (recall was a config problem, not a model problem)
+
+Earlier analysis concluded the classifier needed LoRA to fix missed claims in the
+`false_but_checkable` and `denial_with_stat` categories. That conclusion was wrong,
+and the correction is itself an important project lesson:
+
+1. **Eval-set leakage** inflated every number — several few-shot examples were
+   themselves eval-set posts. After replacing them with synthetic examples disjoint
+   from the eval set, the honest held-out recall fell from an inflated 0.854 to 0.750.
+2. **The remaining recall shortfall was a batch-mode artifact.** Holding the
+   leak-free prompt constant and changing only the batch size, recall went from
+   0.750 (16 posts per LLM call) to **0.938 (one post per call)** — the 3B model
+   drifts when classifying many posts at once. Recall is therefore solved by a
+   configuration change (`llm_batch_size: 1`), not fine-tuning.
+
+The eval set is now 100 hand-labeled posts (44 real, 56 synthetic), and the
+inference default is single-post.
+
+### What LoRA actually targets here: the precision/recall tradeoff
+
+With recall met (0.938), the open problem is **precision (~0.70)**: vague conspiracy
+posts ("weather manipulation is real and they don't want you to know") get over-called
+as claims. A prompt fix tightening the OPINION boundary was tested and **overshot** —
+it lifted precision to 0.943 but crashed recall to 0.688, because a single instruction
+cannot teach the model to tell a *specific* conspiracy claim ("cloud seeding caused the
+Dubai floods last week" → claim) from a *vague* one ("weather manipulation is real" →
+opinion). Prompting can reach high recall **or** high precision on this boundary, but
+not both. Breaking that tradeoff is the legitimate, evidence-backed case for LoRA.
+
+This is an **Option B (accuracy-gap)** fine-tune in the Week 5 framework: train on the
+specific failure slice — contrastive vague-vs-specific conspiracy pairs — to raise
+precision without sacrificing recall. Training data: a hand-labeled hard core on the
+conspiracy-specificity boundary plus teacher-model-labeled real posts for coverage,
+~100–150 examples, all disjoint from the 100-row eval set (the leakage rule applies to
+training data too).
+
+### Generalisation and drift monitoring
+
+**The adapter learns checkability structure, which generalizes to unseen events; drift
+monitoring targets framing shift and eval staleness, not new phenomena.** The adapter is
+not taught facts about specific events — it is taught a topic-independent behavior
+("a specific, named, checkable assertion is a CLAIM; a vague accusation is an OPINION").
+So a future phenomenon the model never saw in training (e.g. a new rifting event with a
+named location and a measurement) is classified correctly by its *shape*, without the
+model knowing the event exists. Drift monitoring is therefore aimed not at new science
+but at (1) **new opinion/conspiracy framings** that did not exist at training time, and
+(2) **eval-set staleness** — the 100-row benchmark reflects today's posts. The plan:
+periodically re-sample recent posts into a fresh eval slice, re-run recall and precision,
+and retrain the adapter only when the metrics degrade.
+
 ### What Embeddings Enable
 
 1. **Category separation signal**: Confirms the keyword ingestion taxonomy is semantically coherent — `scientific` posts cluster together, `conspiracy` posts scatter.
 2. **Foundation for Week 6 RAG**: GDELT news articles will be embedded into ChromaDB; each classified claim will be matched against the collection using the same cosine similarity metric.
-3. **Classifier evaluation baseline**: The 60-post labeled eval set in `data/claim_eval.csv` converts "the classifier kind of works" into measured per-class precision, recall, F1, and a recall-on-CLAIM pass/fail criterion.
+3. **Classifier evaluation baseline**: The 100-post labeled eval set in `data/claim_eval.csv` converts "the classifier kind of works" into measured per-class precision, recall, F1, and a recall-on-CLAIM pass/fail criterion.

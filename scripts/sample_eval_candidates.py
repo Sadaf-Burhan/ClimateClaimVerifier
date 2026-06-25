@@ -55,6 +55,11 @@ con = sqlite3.connect(DB_PATH)
 con.row_factory = sqlite3.Row
 random.seed(RANDOM_SEED)
 
+# Never sample a post already reserved for adapter training (symmetric to in_eval_set).
+# in_eval_set and in_train_set are the two DB-level held-out flags; a post is never both.
+_cols = [r[1] for r in con.execute("PRAGMA table_info(posts)").fetchall()]
+TRAIN_EXCLUDE = "AND (p.in_train_set IS NULL OR p.in_train_set = 0)" if "in_train_set" in _cols else ""
+
 candidates = []
 sampled_ids = []   # track post_ids for leakage-prevention flagging
 
@@ -65,12 +70,13 @@ for cat in CATEGORIES:
         if need == 0:
             continue
 
-        rows = con.execute("""
+        rows = con.execute(f"""
             SELECT p.post_id, p.text, p.keyword_category, p.source, c.reason
             FROM posts p
             JOIN classifications c ON p.post_id = c.post_id
             WHERE p.keyword_category = ?
               AND c.has_claim = ?
+              {TRAIN_EXCLUDE}
         """, (cat, has_claim_val)).fetchall()
 
         # exclude already-in-eval, deduplicate by text
