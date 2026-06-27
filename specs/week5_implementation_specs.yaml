@@ -1,5 +1,14 @@
 # Week 5 - Implementation Specs (REVISED: precision, not recall)
-
+#
+# OUTCOME (executed): the precision-targeted adapter was built, trained on Colab across
+# three claim/opinion balances, and evaluated on the 100-row eval. Result — base
+# single-post 0.938/0.703; adapter 26%-claim 0.812/0.951; 40% 0.854/0.788; 50% 0.958/0.742.
+# LoRA shifted the precision/recall frontier but the target corner (recall>=0.90 AND
+# precision>=0.85) is not on it. VERDICT: ship base qwen2.5:3b single-post (recall 0.938),
+# NO adapter in production — precision is handled downstream by evidence matching.
+# Full write-up: project_description.md, "Week 5" section. The tasks below are retained
+# as the executed plan of record.
+#
 # CONTEXT — why this spec was repointed:
 # The original Week 5 plan was "LoRA to fix false_but_checkable/denial_with_stat
 # false negatives." That premise was overturned by two findings:

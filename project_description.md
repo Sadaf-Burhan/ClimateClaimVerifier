@@ -338,6 +338,52 @@ but at (1) **new opinion/conspiracy framings** that did not exist at training ti
 periodically re-sample recent posts into a fresh eval slice, re-run recall and precision,
 and retrain the adapter only when the metrics degrade.
 
+### Result: the adapter shifted the tradeoff but did not break it
+
+A precision-targeted QLoRA adapter (qwen2.5:3b base, rank 8, Unsloth, ~120 leak-free
+examples = hand-labeled conspiracy-boundary seed + teacher-labeled real posts) was
+trained and evaluated on the unchanged 100-row eval set across three training balances,
+measured against the base single-post classifier:
+
+| Configuration | recall-on-CLAIM | precision-on-CLAIM |
+|---|---|---|
+| Base, single-post (no adapter) | **0.938** | 0.703 |
+| Adapter — 26% claim training mix | 0.812 | **0.951** |
+| Adapter — 40% claim training mix | 0.854 | 0.788 |
+| Adapter — 50% claim training mix | 0.958 | 0.742 |
+
+The adapter's training balance is a dial: more opinion examples raise precision and
+lower recall; more claim examples do the reverse. LoRA genuinely *shifted* the frontier
+— it reached 0.95 precision, which prompt engineering never could. But every point with
+recall ≥ 0.90 capped precision at ~0.74, and every high-precision point (≥ 0.85) had
+recall below 0.82. **The target corner — recall ≥ 0.90 *and* precision ≥ 0.85 together —
+is not on the adapter's frontier.** Fine-tuning moved the curve; it did not break the
+tradeoff at the operating point that matters.
+
+### Final verdict: no adapter in production — ship recall-first
+
+**The classifier ships as the base `qwen2.5:3b` single-post configuration
+(`llm_batch_size: 1`), recall 0.938, with no LoRA adapter.** The reasoning:
+
+1. **Recall is the success criterion (≥ 0.90), and the base already meets it (0.938).**
+   The classifier is a gateway where false negatives are unrecoverable and false
+   positives are cheap and self-correcting — surfaced opinions are discounted downstream
+   by evidence matching (no news corroboration → low evidence proximity). Precision is
+   therefore genuinely secondary by design.
+2. **In the recall-passing zone, the best adapter (precision 0.742) beats the base
+   (0.703) by only ~0.04.** That marginal gain does not justify the cost of merging,
+   GGUF conversion, and maintaining a second model in an Ollama pipeline.
+3. **The adapter cannot deliver what would have justified it** — high recall *and*
+   meaningfully higher precision together — because that corner is off its frontier.
+
+The LoRA work was not wasted: its value is the **finding, not the artifact.** It proved
+empirically that the precision/recall tradeoff on the conspiracy-specificity boundary is
+fundamental for a 3B model — not reachable by prompting *or* fine-tuning at the desired
+corner — which confirms the original architectural decision to keep the binary gate
+recall-first and push precision to the downstream evidence-matching stage. (A trained
+50/50 adapter, 0.958/0.742, exists and could be deployed purely to demonstrate the
+technique, but it is not part of the production pipeline.)
+
 ### What Embeddings Enable
 
 1. **Category separation signal**: Confirms the keyword ingestion taxonomy is semantically coherent — `scientific` posts cluster together, `conspiracy` posts scatter.
