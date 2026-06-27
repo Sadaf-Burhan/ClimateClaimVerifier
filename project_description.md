@@ -284,6 +284,84 @@ Twenty embedding pairs in `data/embedding_pairs.csv` — 10 similar and 10 dissi
 
 Results: similar mean 0.64, dissimilar mean 0.21, separation 0.43. All targets met.
 
+### What Embeddings Enable
+
+1. **Category separation signal**: Confirms the keyword ingestion taxonomy is semantically coherent — `scientific` posts cluster together, `conspiracy` posts scatter.
+2. **Foundation for Week 6 RAG**: GDELT news articles will be embedded into ChromaDB; each classified claim will be matched against the collection using the same cosine similarity metric.
+3. **Classifier evaluation baseline**: The 100-post labeled eval set in `data/claim_eval.csv` converts "the classifier kind of works" into measured per-class precision, recall, F1, and a recall-on-CLAIM pass/fail criterion.
+
+---
+
+## Week 4 — Prompt Engineering and Evaluation
+
+### The task being tuned
+
+Week 4 tunes a **pure binary classification** prompt (claim vs opinion) with a fixed
+output set, evaluated by exact match — not an open-ended instruction-following task. The
+chain-of-thought `thought` field and the `reason` field are internal scaffolding and
+explainability, never scored. The success criterion is **recall-on-CLAIM ≥ 0.90** on the
+100-row `data/claim_eval.csv`, with precision, F1, the confusion matrix, and per-category
+breakdowns (by `keyword_category` and by `post_type`) reported as guardrails.
+
+### Prompt iteration
+
+The prompt evolved from a single zero-shot instruction to a structured few-shot prompt:
+8 examples (4 claim, 4 opinion) chosen as minimal pairs on the hardest boundaries
+(tone-vs-checkability, false-but-checkable, vague-conspiracy, personal-experience); a
+chain-of-thought `thought` field placed first in the structured output so the model
+reasons before committing; and a "checkability is not evidence" rule to stop the model
+demoting unverified-but-specific claims. The task definition lives in the system role; the
+few-shot examples and the JSON format example stay in the user message (moving them to the
+system role dropped recall to 0.708 — a 3B model needs the output format co-located with
+the input).
+
+### Two corrections that overturned the headline number
+
+The benchmark did its job by exposing two problems that had been inflating every result:
+
+1. **Eval-set leakage.** Several few-shot examples were themselves eval-set posts —
+   including the exact `false_but_checkable` and `denial_with_stat` posts they were meant to
+   test. The model was being shown the test answers, inflating recall to ~0.85.
+   *Correction:* every few-shot example was replaced with a synthetic post verified disjoint
+   from `claim_eval.csv`; honest held-out recall fell to **0.750**. (A parallel course-folder
+   implementation had 6/8 examples leaked, inflating it to 0.938.) Leakage prevention is now
+   enforced at the database level via an `in_eval_set` flag (and a symmetric `in_train_set`
+   flag for Week 5), not by ad-hoc text matching.
+
+2. **Batch-mode artifact.** The remaining shortfall was not a model limitation. Classifying
+   16 posts per LLM call made the 3B model drift and under-call claims. Holding the leak-free
+   prompt constant and switching to **single-post inference** (`llm_batch_size: 1`) lifted
+   recall **0.750 → 0.938** and cleared the categories previously blamed on a "weights bias":
+   `false_but_checkable` 5/6, `denial_with_stat` 2/2. Recall was a *configuration* problem,
+   not a prompting or fine-tuning one. (Batch-16 had been chosen for CPU throughput; that
+   choice was silently costing ~0.19 recall — single-post is ~16× more calls, run on GPU/Colab.)
+
+### Result: where the prompt succeeds and where it fails
+
+At leak-free single-post, **recall-on-CLAIM is 0.938** (PASS) with only 3 missed claims out
+of 48. Claim recall is strong across every claim type — `news_event`, `official_alert`,
+`scientific_finding`, `false_but_checkable`, and `denial_with_stat` are all near-perfect.
+The remaining failure is **precision (~0.70)**: false positives concentrated in
+`vague_conspiracy` posts ("weather manipulation is real, they don't want you to know")
+over-called as claims.
+
+A targeted prompt fix to tighten the OPINION boundary **overshot**: precision rose to 0.94
+but recall collapsed to 0.69, because a single instruction cannot teach the model to
+separate a *specific* conspiracy claim ("cloud seeding caused the Dubai floods last week")
+from a *vague* one ("weather manipulation is real"). Prompting reaches high recall **or**
+high precision on this boundary, not both — the prompt-engineering ceiling, and the
+evidence-backed motivation for the Week 5 model-level experiment.
+
+### Lessons / corrections of record
+
+- **Never measure a prompt against a benchmark whose few-shot examples overlap it.** Verify
+  disjointness before trusting any number; enforce it with a DB flag.
+- **Isolate one variable at a time.** The "false_but_checkable is unfixable" conclusion was a
+  confound of leakage *and* batch mode; separating them dissolved it.
+- **Recall-first is deliberate**, given the gateway architecture (a missed claim is
+  unrecoverable; a false positive is discounted downstream). F1 would reward trading recall
+  for precision, which is backwards here.
+
 ---
 
 ## Week 5 — Fine-Tuning with LoRA Adapters
@@ -383,9 +461,3 @@ corner — which confirms the original architectural decision to keep the binary
 recall-first and push precision to the downstream evidence-matching stage. (A trained
 50/50 adapter, 0.958/0.742, exists and could be deployed purely to demonstrate the
 technique, but it is not part of the production pipeline.)
-
-### What Embeddings Enable
-
-1. **Category separation signal**: Confirms the keyword ingestion taxonomy is semantically coherent — `scientific` posts cluster together, `conspiracy` posts scatter.
-2. **Foundation for Week 6 RAG**: GDELT news articles will be embedded into ChromaDB; each classified claim will be matched against the collection using the same cosine similarity metric.
-3. **Classifier evaluation baseline**: The 100-post labeled eval set in `data/claim_eval.csv` converts "the classifier kind of works" into measured per-class precision, recall, F1, and a recall-on-CLAIM pass/fail criterion.
