@@ -104,18 +104,26 @@ Social Media Posts (Bluesky + GDELT)
       Claims proceed to next stage
            │
            ▼
-  [4] EMBEDDING LAYER          — no LLM (Week 2)
-      all-MiniLM-L6-v2 via sentence-transformers
-      Semantic similarity between posts
-      Category cluster analysis
-      Foundation for future evidence retrieval (Week 6)
+  [4] EVIDENCE MATCHING        — no LLM RAG (Week 6)
+      all-MiniLM-L6-v2 embeddings + ChromaDB
+      Retrieve top-k similar GDELT news articles per claim
+      -> "evidence proximity" signal (does published news cover it?)
            │
            ▼
-  [5] DASHBOARD                — Streamlit
-      Top claims ranked by engagement
-      Embedding analysis tools
-      Classifier evaluation metrics
-      (recall on CLAIM, confusion matrix, error breakdowns)
+  [5] SIGNAL ASSEMBLY          — no LLM
+      Per claim: claim + reason, evidence proximity + matched articles,
+      source context (domain / account type / followers),
+      engagement / reach (likes, reposts, replies, quotes)
+           │
+           ▼
+  [6] READER SUMMARY           — suggestive, never a verdict
+      Plain-language description of the signals; flags the red flag:
+      high reach + low support (no corroboration, unverified source)
+           │
+           ▼
+  [7] DASHBOARD                — Streamlit
+      Top claims by engagement, the per-claim signal summary,
+      classifier evaluation metrics, Base-vs-Adapter demo
 ```
 
 ### What Each Component Decides — and What It Does Not
@@ -124,10 +132,14 @@ Social Media Posts (Bluesky + GDELT)
 |-----------|----------------|------------------------|
 | Topic filter | Is this post about NA climate/weather? | Is this claim accurate? |
 | Claim classifier (LLM) | Does this text contain a verifiable factual statement? | Is that statement true? |
-| Embedding layer | How semantically similar are two posts? | Which one is correct? |
-| Dashboard | Surfaces signals for the reader | Makes a final truth judgment |
+| Evidence matching (RAG) | How closely does published news cover this claim? | Whether the claim is true or false |
+| Signal assembly | Which signals to surface (claim, proximity, source, reach) | A credibility verdict or score |
+| Reader summary | A plain-language, suggestive description of the signals | Any yes/no or numeric truth judgment |
+| Dashboard | Surfaces the signals + summary for the reader | The reader's conclusion |
 
-**The final truth judgment is never made by the system.** The system equips a reader with structured signals: claim detected, engagement level, source domain, embedding similarity to published news. The reader draws the conclusion.
+**The final truth judgment is never made by the system.** It equips a reader with structured signals — claim detected, semantic proximity to published news, source context (domain / account type / followers), and engagement/reach (likes, reposts, replies, quotes) — plus a plain-language summary. The reader draws the conclusion. There is **no numeric credibility score and no HIGH/MEDIUM/LOW verdict**; an early design had one and it was deliberately removed, because an LLM cannot verify facts (see "What This System Does NOT Do").
+
+**The headline signal is reach vs. support.** A claim spreading widely (high engagement) with no news corroboration and from an unverified source is the misinformation red flag — **high reach, low support.** The reader summary names that combination explicitly, making the mismatch between how far a claim travels and how well it is supported legible — without the system ever asserting the post is false.
 
 ---
 

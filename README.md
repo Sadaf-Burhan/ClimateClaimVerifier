@@ -113,23 +113,40 @@ Asking those questions would be the category error this project is specifically 
     rejected  proceeds
               │
               ▼
-  ┌─────────────────────┐
-  │  EMBEDDING LAYER    │  ← no LLM (Week 2)
-  │  all-MiniLM-L6-v2   │
-  │  Semantic similarity│
-  │  Category clustering│
-  │  Future: RAG base   │
-  └─────────┬───────────┘
+  ┌──────────────────────────┐
+  │  EVIDENCE MATCHING (RAG) │  ← no LLM · Week 6
+  │  embed claim (MiniLM),    │
+  │  retrieve top-k similar   │
+  │  GDELT news via ChromaDB  │
+  │  → "evidence proximity"   │
+  └─────────┬────────────────┘
             │
             ▼
-  ┌─────────────────────┐
-  │  DASHBOARD          │
-  │  Streamlit          │
-  │  Top claims by      │
-  │  engagement         │
-  │  Embedding tools    │
-  └─────────────────────┘
+  ┌──────────────────────────┐
+  │  SIGNAL ASSEMBLY         │  ← no LLM
+  │  claim + reason ·         │
+  │  evidence proximity ·     │
+  │  source context ·         │
+  │  engagement (reach)       │
+  └─────────┬────────────────┘
+            │
+            ▼
+  ┌──────────────────────────┐
+  │  READER SUMMARY          │  ← SUGGESTIVE — never a verdict
+  │  flags reach-vs-support:  │
+  │  high reach + low support │
+  │  = misinformation red flag│
+  └─────────┬────────────────┘
+            │
+            ▼
+  ┌──────────────────────────┐
+  │  DASHBOARD (Streamlit)   │
+  │  top claims by engagement │
+  │  + the per-claim summary  │
+  └──────────────────────────┘
 ```
+
+> The embedding model (`all-MiniLM-L6-v2`, Week 2) is the engine for **Evidence Matching** — the same cosine-similarity it was validated on now measures how closely published GDELT news covers a classified claim.
 
 ### What Each Component Decides — and What It Does Not
 
@@ -137,10 +154,16 @@ Asking those questions would be the category error this project is specifically 
 |-----------|---------|----------------|
 | Topic filter | Is this about NA climate/weather? | Is this claim accurate? |
 | Claim classifier (LLM) | Does this text contain a verifiable factual statement? | Is that statement true? |
-| Embedding layer | How semantically similar are two posts? | Which post is correct? |
-| Dashboard | Surfaces signals for the reader | Makes any truth judgment |
+| Evidence matching (RAG) | How closely does published news cover this claim? (proximity) | Whether the claim is true or false |
+| Signal assembly | Which signals to surface (claim, proximity, source, reach) | A credibility verdict / score |
+| Reader summary | A plain-language, suggestive description of the signals | Any yes/no or numeric truth judgment |
+| Dashboard | Surfaces the signals + summary for the reader | The reader's conclusion |
 
-**The final truth judgment is never made by the system.** The system surfaces structured signals — claim detected, engagement level, source domain, semantic proximity to published news. The reader draws the conclusion.
+**The final truth judgment is never made by the system.** It surfaces structured signals — claim detected, semantic proximity to published news, source context (domain / account type / followers), and engagement/reach (likes, reposts, replies, quotes) — plus a plain-language summary. The reader draws the conclusion. There is **no numeric credibility score and no HIGH/MEDIUM/LOW verdict** — those were in an earlier design and were deliberately removed; an LLM cannot verify facts, so the system surfaces evidence instead of asserting truth.
+
+### The signal that matters most: reach vs. support
+
+A claim spreading widely (high engagement) with **no** news corroboration **and** from an unverified source is the misinformation red flag — **high reach, low support.** The reader summary names exactly that combination ("spreading fast; no published news covers it; unverified account") so a reader can weigh it — without the system ever claiming the post is false. This is the core value of the scanner: not a verdict, but making the *mismatch between how far a claim travels and how well it's supported* legible.
 
 ---
 
