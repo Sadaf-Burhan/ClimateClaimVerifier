@@ -461,3 +461,11 @@ corner — which confirms the original architectural decision to keep the binary
 recall-first and push precision to the downstream evidence-matching stage. (A trained
 50/50 adapter, 0.958/0.742, exists and could be deployed purely to demonstrate the
 technique, but it is not part of the production pipeline.)
+
+**Was the fine-tuning a failure? No.** It was the experiment that converted "precision is
+secondary" from an assertion into a *measured* fact. Choosing not to deploy the adapter is
+a result, not a dead end: it is the difference between defending the recall-first
+architecture with evidence and merely hoping it is right. The negative result — that no
+fine-tuning balance reaches the recall ≥ 0.90 / precision ≥ 0.85 corner — is what makes the
+decision to push precision downstream to evidence matching a justified design choice rather
+than a convenient assumption.
