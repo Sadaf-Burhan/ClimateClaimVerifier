@@ -427,6 +427,14 @@ could not hold recall ≥ 0.90 **and** precision ≥ 0.85 together, so it is not
             "50,000 acres of ice sheets have melted, what a lie these governments are trying to convince people of Alaska",
         "Specific conspiracy (claim)":
             "Cloud seeding planes triggered the flash floods in Dubai last week",
+        "Emotional reaction (both → opinion)":
+            "I am so done with this weather, it's honestly making me miserable",
+        "False but checkable (both → claim)":
+            "Antarctic sea ice has actually been expanding for the past decade",
+        "Hyperbole / doom (adapter stricter → opinion)":
+            "Honestly the planet is finished, there's no point even trying anymore",
+        "Official alert (both → claim)":
+            "The National Hurricane Center upgraded the system to Category 4 overnight",
     }
     pick = st.selectbox("Try a revealing example, or type your own below:", ["—"] + list(examples))
     default_text = examples.get(pick, "")
