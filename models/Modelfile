@@ -1,0 +1,6 @@
+# Ollama Modelfile for the Week-5 LoRA adapter (demo only — not the production model).
+# Place the GGUF built on Colab next to this file as models/climate_claim.gguf, then:
+#   ollama create qwen2.5-3b-claim-lora -f models/Modelfile
+# The model name must match model.adapter_name in src/climate_verifier/config.yaml.
+FROM ./climate_claim.gguf
+PARAMETER temperature 0

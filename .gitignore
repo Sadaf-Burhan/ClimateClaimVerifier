@@ -18,6 +18,10 @@ data/*.csv
 /unclassified_posts.csv
 tmp/
 
+# Model weights — large, not versioned (the GGUF is built on Colab and registered locally)
+*.gguf
+models/*.gguf
+
 # OS
 .DS_Store
 
