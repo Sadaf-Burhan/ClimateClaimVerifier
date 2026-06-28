@@ -155,7 +155,7 @@ The classifier gate has two failure directions with very different costs:
 
 Accuracy alone treats these errors as equal, so it is reported but is **not** the success criterion.
 
-**Evaluation set:** `data/claim_eval.csv` — 60 hand-labeled posts with human-verified labels, stratified by all five keyword categories (`scientific`, `extreme_events`, `sensationalist`, `conspiracy`, `combinations`) **and** by post type (official alerts, news events, scientific findings, false-but-checkable conspiracy claims, denial rants with embedded statistics, emotion wrapped around official warnings, sarcasm/jokes, hyperbole, political viewpoints, vague conspiracy, emotional reactions, rhetorical questions). Hard boundary cases are deliberately oversampled — that is where a small model fails first. Labeling rule: a post that expresses opinion or hostility but contains at least one checkable assertion is a **claim**.
+**Evaluation set:** `data/claim_eval.csv` — 100 hand-labeled posts (44 real, 56 synthetic) with human-verified labels, stratified by all five keyword categories (`scientific`, `extreme_events`, `sensationalist`, `conspiracy`, `combinations`) **and** by post type (official alerts, news events, scientific findings, false-but-checkable conspiracy claims, denial rants with embedded statistics, emotion wrapped around official warnings, sarcasm/jokes, hyperbole, political viewpoints, vague conspiracy, emotional reactions, rhetorical questions). Hard boundary cases are deliberately oversampled — that is where a small model fails first. Labeling rule: a post that expresses opinion or hostility but contains at least one checkable assertion is a **claim**.
 
 **Metrics** (`src/climate_verifier/pipeline/evaluate.py` — CLI report and dashboard section):
 
@@ -260,7 +260,7 @@ ClimateClaimVerifier/
 │
 ├── data/
 │   ├── ingested.db                     ← SQLite: posts + classifications (generated at runtime)
-│   ├── claim_eval.csv                  ← Week 1: 60 hand-labeled posts for classifier evaluation
+│   ├── claim_eval.csv                  ← 100 hand-labeled posts (44 real + 56 synthetic) — benchmark
 │   └── embedding_pairs.csv            ← Week 2: 20 pairs for embedding quality eval
 │
 └── src/
@@ -302,13 +302,14 @@ Runs before any model call. Discarding irrelevant posts here saves LLM inference
 
 ### Week 1: Claim Classifier (`pipeline/claim_classifier.py`)
 
-LLM binary classifier using `qwen2.5:3b` via Ollama — selected over `gemma2:2b` and `llama3.2:3b` in a bake-off on the labeled eval set (recall-on-CLAIM 0.81 / precision 0.96, vs 0.75 / 0.86 for gemma2:2b).
+LLM binary classifier using `qwen2.5:3b` via Ollama — selected over `gemma2:2b` and `llama3.2:3b` in a bake-off on the labeled eval set. On the 100-row held-out benchmark it reaches **recall-on-CLAIM 0.938** (single-post, leak-free; precision ~0.70). See `project_description.md` (Weeks 4–5) for the eval-leakage and batch-mode corrections behind that number.
 
-**Prompt design** (aligned with Week 4 course content):
-- 6 few-shot examples showing claim/opinion pairs with expected JSON output, deliberately including the hard boundary cases: a false-but-checkable assertion, emotion wrapped around a checkable fact, and a not-checkable personal experience
+**Prompt design** (Week 4):
+- 8 leak-free few-shot examples (4 claim / 4 opinion) on the hard boundary cases (false-but-checkable assertions, emotion wrapped around a fact, vague conspiracy, personal experience) — verified disjoint from the eval set
+- A chain-of-thought `thought` field (first in the schema) so the model reasons before committing, plus a "checkability is not evidence" rule
 - Explicit instruction to never judge truth — only claim presence
-- Structured JSON schema enforced via regex extraction
-- `temperature: 0.0` for deterministic, reproducible results
+- Structured JSON schema enforced via regex extraction; `temperature: 0.0` for deterministic results
+- Inference runs single-post (`llm_batch_size: 1`) — batching 16/call cost ~0.19 recall on the 3B model
 
 **Persistence**: results saved to `classifications` table keyed by `post_id`. Posts are never re-classified — the classifier is idempotent. The dashboard only runs classification on unclassified posts.
 
@@ -379,7 +380,9 @@ Tab 2 (Embedding Analysis) works without Ollama running — it uses sentence-tra
 |------|---------|-------------------------------|
 | 1 | LLM use cases, classification | `claim_classifier.py` — binary claim/opinion detector · `evaluate.py` — quality metrics |
 | 2 | Tokenisation, embeddings, cosine similarity | `embedder.py`, `claim_eval.csv`, `embedding_pairs.csv`, Tab 2 |
-| 3–8 | Future work | RAG evidence retrieval, source credibility lookup, prompt tuning, adapter fine-tuning |
+| 4 | Prompt engineering & evaluation | leak-free 8-shot + CoT prompt; found + fixed eval leakage and the batch-mode artifact (recall 0.750 → 0.938 single-post); precision is the open problem |
+| 5 | Fine-tuning with LoRA adapters | trained a precision-targeted QLoRA adapter; measured the recall/precision tradeoff is unbreakable at the target corner → ship base, no adapter; Base-vs-Adapter demo tab (`models/`, Tab 3) |
+| 6–8 | Future work | RAG evidence retrieval (ChromaDB), source credibility lookup, multimodal |
 
 Your workflow from now on will be:
 

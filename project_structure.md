@@ -1,37 +1,61 @@
 # Project Structure — Climate Claim Scanner
 
-This document explains every folder and file in this project and the reasoning behind each decision.
-The project applies Weeks 1 and 2 of the Foundations of Language Models course to a real-world domain:
-North American climate and extreme weather social media posts.
+This document explains every folder and file in this project and the reasoning behind each
+decision. It is an end-to-end project: North American climate/extreme-weather social-media
+posts are ingested, filtered, classified (claim vs opinion), evaluated, embedded, and — in
+Week 5 — used to train and compare a LoRA adapter. (`project_description.md` is the
+authoritative narrative; this file is the file-by-file reference.)
 
 ```
 ClimateClaimVerifier/
-├── app.py                              ← Streamlit dashboard (Weeks 1 + 2)
+├── app.py                              ← Streamlit dashboard (3 tabs: Weeks 1, 2, 5)
 ├── pyproject.toml                      ← dependencies managed by uv
 ├── .env                                ← Bluesky credentials (gitignored — never commit)
 ├── .gitignore
-├── project_description.md             ← authoritative project description
+├── .streamlit/config.toml              ← disables the source-watcher (transformers noise)
+├── project_description.md              ← authoritative project description
 ├── project_structure.md               ← this file
 │
 ├── data/
-│   ├── ingested.db                     ← SQLite: posts + classifications
-│   ├── claim_eval.csv                  ← Week 1: 60 labeled posts for classifier evaluation
-│   └── embedding_pairs.csv            ← Week 2: 20 pairs for embedding quality eval
+│   ├── ingested.db                     ← SQLite: posts (+ in_eval_set / in_train_set flags),
+│   │                                       classifications, metadata   (gitignored)
+│   ├── claim_eval.csv                   ← 100 labeled posts — the held-out benchmark (TRACKED)
+│   ├── lora_seed.jsonl                  ← 26 hand-labeled Week-5 LoRA seed examples (TRACKED)
+│   └── embedding_pairs.csv              ← Week 2: 20 pairs for embedding quality (gitignored)
+│
+├── scripts/                            ← eval-set + LoRA dataset tooling (with leakage guards)
+│   ├── sample_eval_candidates.py        ← sample real posts as eval candidates (excludes in_train_set)
+│   ├── flag_eval_posts.py               ← marks eval posts in_eval_set=1 in the DB
+│   ├── build_lora_trainset.py           ← two-phase LoRA dataset builder (select / label), flags in_train_set
+│   ├── export_for_colab.py              ← export unclassified posts -> tmp/colab/ for GPU classification
+│   └── import_from_colab.py             ← import Colab classification results back into the DB
+│
+├── models/                             ← Week-5 demo adapter (GGUF is gitignored, ~3.3 GB)
+│   ├── Modelfile                        ← `ollama create qwen2.5-3b-claim-lora -f models/Modelfile`
+│   └── README.md                        ← how to register the adapter locally
+│
+├── notebooks/
+│   ├── week5_lora_training_colab.ipynb           ← clean, re-runnable Colab training source
+│   └── week5_lora_training_colab.executed.ipynb  ← the actual run, with cell outputs (record)
+│
+├── specs/
+│   └── week5_implementation_specs.yaml ← Week-5 plan + executed outcome banner
+│
+├── Analysis/evaluation.md              ← analysis notes
+├── tmp/colab/                          ← transient Colab staging (gitignored)
 │
 └── src/
     └── climate_verifier/
         ├── config.yaml                 ← single source of truth for all parameters
         ├── __init__.py
-        │
-        ├── ingestion/                  ← Infrastructure: data collection
+        ├── ingestion/                  ← Infrastructure: data collection (no LLM)
         │   ├── bluesky.py
         │   ├── gdelt.py
         │   ├── store.py
         │   └── scheduler.py
-        │
         └── pipeline/                   ← Processing (course content)
             ├── topic_filter.py         ← Pre-LLM keyword relevance gate
-            ├── claim_classifier.py     ← Week 1: LLM binary classifier
+            ├── claim_classifier.py     ← Weeks 1/4/5: LLM classifier + adapter-serving helper
             ├── evaluate.py             ← Week 1: classifier quality metrics
             └── embedder.py             ← Week 2: sentence-transformer embeddings
 ```
@@ -41,148 +65,117 @@ ClimateClaimVerifier/
 ## File by File
 
 ### `app.py`
-Streamlit dashboard with two tabs:
-- **Tab 1 — Claim Classifier**: ingestion status, run classifier buttons, top claims/opinions,
+Streamlit dashboard with **three tabs**:
+- **Tab 1 — Claim Classifier**: ingestion status, run-classifier buttons, top claims/opinions,
   classifier evaluation (recall-on-CLAIM criterion, confusion matrix, error breakdowns)
 - **Tab 2 — Embedding Analysis**: interactive similarity checker, pair eval, category clustering
+- **Tab 3 — Base vs Adapter (Week 5)**: a *comparison harness* (not a production switch) — runs a
+  post through the base classifier (8-shot prompt) and the LoRA adapter (lean prompt, served via
+  Ollama as a GGUF) side by side, with a direction-aware agreement/disagreement message.
 
 Run: `uv run streamlit run app.py` from the project root.
 
-### `data/ingested.db`
-SQLite database with three tables:
-- `posts` — all ingested content (Bluesky + GDELT), deduplicated by `post_id`
+### `data/ingested.db`  (gitignored)
+SQLite database:
+- `posts` — all ingested content (Bluesky + GDELT), deduplicated by `post_id`. Two held-out flags:
+  **`in_eval_set`** (held out for evaluation) and **`in_train_set`** (reserved for LoRA training).
+  A post is never both — these are the DB-level leakage guards.
 - `classifications` — LLM claim/opinion decisions, keyed by `post_id`
-- `metadata` — stores the last successful ingestion timestamp
+- `metadata` — last successful ingestion timestamp
 
-### `data/claim_eval.csv` ← Week 1
-60 manually-labeled posts covering all keyword categories (`scientific`, `extreme_events`,
-`sensationalist`, `conspiracy`, `combinations`) and twelve post types, with the hard
-boundary cases (sarcasm, denial rants with embedded statistics, emotion wrapped around
-official warnings) deliberately oversampled. Columns:
+### `data/claim_eval.csv`  (TRACKED — the benchmark)
+**100** human-labeled posts: 44 real (Bluesky + GDELT) and 56 synthetic hard-boundary cases,
+stratified by `keyword_category` and `post_type`. Columns: `post_text`, `expected_label`
+(`claim`/`opinion`), `keyword_category`, `post_type`, `notes`. Labeling rule: a post with
+hostile/opinion tone but at least one checkable assertion is a `claim`. Real eval posts are
+flagged `in_eval_set=1` so they are excluded from ChromaDB and LoRA training. Input to `evaluate.py`.
 
-| Column | Purpose |
-|--------|---------|
-| `post_text` | the raw text as it would appear in the database |
-| `expected_label` | `claim` or `opinion` (human ground truth) |
-| `keyword_category` | which ingestion category this post represents |
-| `post_type` | linguistic shape (e.g. `official_alert`, `sarcasm_joke`, `denial_with_stat`) — drives the error breakdown |
-| `notes` | why this label is correct — useful for auditing failures |
+### `data/lora_seed.jsonl`  (TRACKED — Week 5)
+26 hand-labeled contrastive examples on the conspiracy-specificity boundary (vague accusation →
+opinion, specific mechanism / denial-with-statistic → claim), verified disjoint from the eval set.
+The human-labeled "hard core" of the LoRA training set; the rest is teacher-labeled real posts.
 
-Labeling rule: a post that expresses opinion or hostility but contains at least one
-checkable assertion is a `claim`. Purpose: input to `pipeline/evaluate.py`.
+### `data/embedding_pairs.csv`  (Week 2)
+20 text pairs (10 similar, 10 dissimilar) for embedding quality. Similar > 0.6, dissimilar < 0.4.
 
-### `data/embedding_pairs.csv` ← Week 2
-20 text pairs for embedding quality evaluation — 10 similar and 10 dissimilar. Columns:
+---
 
-| Column | Purpose |
-|--------|---------|
-| `text_a`, `text_b` | the two texts to compare |
-| `should_be_similar` | `True` if they describe the same type of event |
-| `pair_type` | describes the pairing (e.g. `similar-extreme-events`) |
+## Scripts — eval-set & LoRA dataset tooling
 
-Similar pairs should score > 0.6; dissimilar pairs < 0.4.
+| Script | Role |
+|--------|------|
+| `sample_eval_candidates.py` | sample real DB posts as eval candidates; **excludes `in_train_set`** so eval never overlaps training |
+| `flag_eval_posts.py` | mark approved eval posts `in_eval_set=1` (by `post_id`); excluded from ChromaDB |
+| `build_lora_trainset.py` | two-phase: **`select`** (local — flags posts `in_train_set=1`, exports candidates) and **`label`** (Colab — teacher-labels with per-post caching, merges the seed, asserts leak-free) |
+| `export_for_colab.py` / `import_from_colab.py` | round-trip unclassified posts to a GPU (Colab) for fast classification, then import results |
 
 ---
 
 ## Pipeline Layer
 
-### `ingestion/` — Infrastructure
-Data collection. No LLM concepts apply here — these files handle HTTP requests, API auth,
-SQLite writes, and scheduling.
-
+### `ingestion/` — Infrastructure (no LLM)
 | File | Role |
 |------|------|
-| `bluesky.py` | atproto SDK; fetches posts + author follower counts per keyword |
-| `gdelt.py` | HTTP requests to GDELT API; rate-limit retry with backoff |
-| `store.py` | `INSERT OR IGNORE` deduplication; ingestion timestamp in `metadata` table |
-| `scheduler.py` | APScheduler blocking loop; 24-hour guard against re-ingestion |
+| `bluesky.py` | atproto SDK; posts + batched author follower counts per keyword; raw-HTTP fallback for new embed types |
+| `gdelt.py` | GDELT API; rate-limit retry with backoff |
+| `store.py` | `INSERT OR IGNORE` dedup; ingestion timestamp in `metadata` |
+| `scheduler.py` | APScheduler loop; 24h guard; aligns Bluesky `since` with GDELT window |
 
 ### `pipeline/topic_filter.py` — Pre-LLM gate
-Keyword-based relevance check using two lists:
-- `WEATHER_TERMS` — confirms the post is about a climate/weather topic
-- `NA_TERMS` — confirms geographic relevance to North America
+Keyword relevance check (`WEATHER_TERMS` + `NA_TERMS`); discards irrelevant posts before any LLM call.
 
-No LLM call. This gate runs first and discards irrelevant posts before any model is invoked,
-keeping the LLM workload focused on posts that have already passed a basic relevance check.
+### `pipeline/claim_classifier.py` — Weeks 1 / 4 / 5 (LLM classification)
+Binary claim/opinion classifier using `qwen2.5:3b` via Ollama. Returns `{"has_claim": bool, "reason": str}`;
+identifies the *presence* of a checkable claim, never its truth.
 
-### `pipeline/claim_classifier.py` — Week 1 (LLM: Classification)
-Binary claim/opinion classifier using `qwen2.5:3b` via Ollama — selected over `gemma2:2b`
-and `llama3.2:3b` in a bake-off on the labeled eval set (recall-on-CLAIM 0.81 / precision
-0.96 vs 0.75 / 0.86 for gemma2:2b).
+- **Prompt (Week 4)**: 8 leak-free few-shot examples (4 claim / 4 opinion), a chain-of-thought
+  `thought` field (first in the schema), and a "checkability is not evidence" rule. Examples are
+  verified disjoint from the eval set.
+- **Inference (Week 5 finding)**: `llm_batch_size: 1` (single-post). Batching 16 posts per call cost
+  ~0.19 recall on the 3B model; single-post reaches recall **0.938** (precision ~0.70). See
+  `project_description.md` Week 4/5 for the leakage + batch-mode corrections.
+- **`classify_lean(post, model)`**: serves the LoRA adapter with the lean zero-shot prompt it was
+  trained on (used only by the Base-vs-Adapter tab; not in the production pipeline).
+- `classify_batch` / `classify_pending` drive the dashboard and headless backlog classification.
 
-**What the LLM does**: reads a post and decides whether it contains a verifiable factual
-statement. Returns `{"has_claim": bool, "reason": str}`.
+### `pipeline/evaluate.py` — Week 1 (classifier quality)
+Runs the classifier against `data/claim_eval.csv`. **Recall on CLAIM ≥ 0.90** is the success
+criterion (false negatives are unrecoverable; false positives are cheap, discounted downstream).
+Reports per-class P/R/F1, confusion matrix, FN-vs-FP asymmetry, and breakdowns by `keyword_category`
+and `post_type`. Run: `uv run python -m climate_verifier.pipeline.evaluate`.
 
-**What the LLM does NOT do**: verify whether the claim is true. It identifies the *presence*
-of a claim, not its accuracy. This is the core justification for appropriate LLM use —
-binary text classification matches Week 1's "decision" use case exactly.
+### `pipeline/embedder.py` — Week 2 (embeddings)
+`sentence-transformers` with `all-MiniLM-L6-v2` (chosen over `nomic-embed-text` for higher MTEB STS).
+`similarity`, `eval_pairs`, `category_similarity_stats`. Foundation for Week-6 RAG evidence retrieval.
 
-Design decisions aligned with course content:
-- Few-shot prompting: 6 labeled input/output examples in the prompt, including the hard
-  boundary cases (false-but-checkable assertion, emotion wrapped around a fact, personal
-  experience) and an explicit "never judge truth" instruction
-- Structured JSON output with a fixed schema enforced by regex extraction
-- `temperature: 0.0` — deterministic, reproducible outputs
-- Results saved permanently to `classifications` table — never re-classified
+---
 
-### `pipeline/evaluate.py` — Week 1 (Classifier quality metrics)
-Runs the classifier against `data/claim_eval.csv` and computes quality metrics with
-CLAIM as the positive class.
+## Week 5 — LoRA adapter (trained, evaluated, NOT deployed)
 
-**Why not accuracy alone**: the two error directions have asymmetric cost. A false
-negative (claim labeled opinion) is discarded at the gate and never reaches the
-dashboard — unrecoverable. A false positive (opinion labeled claim) merely surfaces
-on the dashboard where context lets the reader discount it. The success criterion is
-therefore **recall on CLAIM ≥ 0.90** (`claim_recall_target` in `config.yaml`), with
-precision reported alongside.
-
-Functions:
-- `run_eval(csv_path, model)` → classifies every eval post, returns per-post results
-- `compute_metrics(results)` → accuracy, per-class P/R/F1, confusion matrix, FN-vs-FP
-  asymmetry stats, error breakdowns by `keyword_category` and `post_type`, misclassified posts
-- `format_report(metrics)` → plain-text CLI report
-
-Run: `uv run python -m climate_verifier.pipeline.evaluate` (also surfaced in dashboard Tab 1).
-
-### `pipeline/embedder.py` — Week 2 (Tokenisation and Embeddings)
-Embedding module using `sentence-transformers` with `all-MiniLM-L6-v2`.
-
-**Model selection decision**: course baseline is `nomic-embed-text` (Ollama). Switched to
-`all-MiniLM-L6-v2` because:
-1. Higher MTEB STS scores — the primary task here is Semantic Textual Similarity
-2. Runs offline without Ollama — the scheduler operates independently
-3. 384-dimensional vectors sufficient for both evaluation and future RAG
-
-Functions:
-- `embed(texts)` → normalised embedding matrix (n × 384)
-- `similarity(text_a, text_b)` → cosine similarity as float
-- `eval_pairs(csv_path)` → runs against `embedding_pairs.csv`, returns accuracy stats
-- `category_similarity_stats(db_path)` → mean intra-category similarity from the live DB
+A precision-targeted QLoRA adapter was trained on `qwen2.5:3b` (rank 8, Unsloth, Colab) across three
+claim/opinion balances. It shifted the precision/recall frontier but no balance reached recall ≥ 0.90
+**and** precision ≥ 0.85 together, so **production ships the base classifier (recall 0.938) with no
+adapter**; the adapter is demo-only (the GGUF in `models/`, the Base-vs-Adapter tab). The finding —
+not the artifact — is the result. Full write-up: `project_description.md`, "Week 5".
 
 ---
 
 ## Configuration (`config.yaml`)
 
-Single source of truth. All parameters live here — no hardcoded values in Python files.
-
 ```yaml
 model:
-  name: "qwen2.5:3b"         # Ollama model for LLM classification (Week 1)
-
+  name: "qwen2.5:3b"                      # Ollama model (classification)
+  temperature: 0.0
+  llm_batch_size: 1                       # single-post (recall 0.938; batch-16 was 0.750)
+  adapter_name: "qwen2.5-3b-claim-lora"   # demo-only LoRA, registered in Ollama as a GGUF
 embedding:
-  model_name: "all-MiniLM-L6-v2"   # sentence-transformer model (Week 2)
-
+  model_name: "all-MiniLM-L6-v2"
 evaluation:
   claim_eval_csv: data/claim_eval.csv
-  claim_recall_target: 0.90        # success criterion for the classifier gate
-
-ingestion:
-  interval_hours: 24
-  bluesky_limit: 100
-  ...keywords by category...
-
+  claim_recall_target: 0.90
 storage:
   db_path: data/ingested.db
+ingestion: { interval_hours: 24, bluesky_limit: 100, ...keywords by category... }
 ```
 
 ---
@@ -190,16 +183,10 @@ storage:
 ## Running the Project
 
 ```bash
-# Install dependencies
-uv sync
-
-# Start Ollama (required for claim classifier tab)
-ollama serve
-ollama pull qwen2.5:3b
-
-# Run ingestion (first time populates DB; repeats every 24h automatically)
-uv run python -m climate_verifier.ingestion.scheduler
-
-# Launch dashboard (separate terminal)
-uv run streamlit run app.py
+uv sync                                              # install deps
+ollama serve && ollama pull qwen2.5:3b               # classifier model
+uv run python -m climate_verifier.ingestion.scheduler  # ingest (24h guard)
+uv run python -m climate_verifier.pipeline.evaluate    # evaluate the classifier
+uv run streamlit run app.py                          # dashboard (3 tabs)
 ```
+The Base-vs-Adapter tab needs the LoRA registered in Ollama — see `models/README.md`.
