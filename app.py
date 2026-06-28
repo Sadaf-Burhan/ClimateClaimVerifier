@@ -469,9 +469,20 @@ could not hold recall ≥ 0.90 **and** precision ≥ 0.85 together, so it is not
             if a["has_claim"] is not None:
                 if a["has_claim"] == b["has_claim"]:
                     st.info("Both models agree on this post.")
+                elif b["has_claim"] and not a["has_claim"]:
+                    # base=CLAIM, adapter=OPINION — the precision case
+                    st.success(
+                        "⚡ The models **disagree**, and the adapter is the stricter one — it "
+                        "demoted this to **OPINION**. For a vague accusation with nothing specific "
+                        "to check, the adapter is **correct** and the base's CLAIM is a false "
+                        "positive — that's the precision gain. The same strictness is what can cost "
+                        "recall on borderline *real* claims (try the denial-with-stat example)."
+                    )
                 else:
-                    st.info(
-                        "⚡ The models **disagree** — this is the precision/recall tradeoff in "
-                        "action: the adapter is stricter about what counts as a claim, which "
-                        "raises precision but is what costs recall elsewhere."
+                    # base=OPINION, adapter=CLAIM — the rarer direction
+                    st.warning(
+                        "⚡ The models **disagree** — here the adapter is the more *permissive* one, "
+                        "calling **CLAIM** where the base said OPINION. The adapter is right only if "
+                        "the post names something specific and checkable; on a vague rant this would "
+                        "be the kind of false positive the adapter is usually trained to avoid."
                     )
