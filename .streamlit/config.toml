@@ -1,0 +1,7 @@
+# transformers (pulled in by sentence-transformers for the embedding tab) has lazy
+# submodule imports that Streamlit's source-watcher trips over — it tries to load
+# transformers' zoedepth image processor, which needs torchvision (not installed and
+# not needed), spamming ModuleNotFoundError on every rerun. Disabling the watcher
+# stops the noise; rerun manually (the "Rerun" button, or refresh) to pick up code edits.
+[server]
+fileWatcherType = "none"
