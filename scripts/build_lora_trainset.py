@@ -43,6 +43,7 @@ CONFIG = ROOT / "src" / "climate_verifier" / "config.yaml"
 SEED = ROOT / "data" / "lora_seed.jsonl"
 EVAL = ROOT / "data" / "claim_eval.csv"
 CANDIDATES = ROOT / "tmp" / "colab" / "train_candidates.jsonl"
+CACHE = ROOT / "tmp" / "colab" / "labeled_cache.jsonl"   # teacher labels, keyed by post_id
 OUT = ROOT / "tmp" / "colab" / "lora_trainset.jsonl"
 
 OVERSAMPLE_CATS = ("conspiracy", "combinations", "sensationalist")  # where precision fails
@@ -149,31 +150,44 @@ def phase_label(teacher: str) -> None:
     cands = [json.loads(l) for l in open(CANDIDATES, encoding="utf-8")]
     eval_norm = {norm(r["post_text"]) for r in csv.DictReader(open(EVAL, encoding="utf-8"))}
 
-    labeled = []
-    for i, c in enumerate(cands, 1):
-        t = c["text"]
-        try:
-            resp = ollama.chat(
-                model=teacher,
-                messages=[{"role": "user", "content": TEACHER_PROMPT % t[:500]}],
-                format={"type": "object",
-                        "properties": {"thought": {"type": "string"},
-                                       "has_claim": {"type": "boolean"},
-                                       "reason": {"type": "string"}},
-                        "required": ["thought", "has_claim", "reason"]},
-                options={"temperature": 0.0, "num_predict": 200},
-            )
-            m = re.search(r"\{.*\}", resp["message"]["content"], re.DOTALL)
-            if not m:
-                continue
-            d = json.loads(m.group())
-            labeled.append({"text": t, "has_claim": bool(d.get("has_claim", False)),
-                            "thought": str(d.get("thought", "")), "reason": str(d.get("reason", ""))})
-            if i % 10 == 0:
-                print(f"  labeled {i}/{len(cands)}")
-        except Exception as e:
-            print(f"  teacher error on #{i}: {e}")
+    # CACHE: teacher calls are expensive, so labels are written-as-you-go to CACHE
+    # (one line per post, keyed by post_id). On re-run we reload it and only label
+    # posts not already cached — so an interrupted run resumes, and re-runs cost $0.
+    CACHE.parent.mkdir(parents=True, exist_ok=True)
+    cache = [json.loads(l) for l in open(CACHE, encoding="utf-8")] if CACHE.exists() else []
+    done = {c.get("post_id") for c in cache}
+    todo = [c for c in cands if c.get("post_id") not in done]
+    print(f"Cache: {len(cache)} already labeled; {len(todo)} of {len(cands)} candidates left to label.")
 
+    with open(CACHE, "a", encoding="utf-8") as cf:   # append-only, flush per row
+        for i, c in enumerate(todo, 1):
+            t = c["text"]
+            try:
+                resp = ollama.chat(
+                    model=teacher,
+                    messages=[{"role": "user", "content": TEACHER_PROMPT % t[:500]}],
+                    format={"type": "object",
+                            "properties": {"thought": {"type": "string"},
+                                           "has_claim": {"type": "boolean"},
+                                           "reason": {"type": "string"}},
+                            "required": ["thought", "has_claim", "reason"]},
+                    options={"temperature": 0.0, "num_predict": 200},
+                )
+                m = re.search(r"\{.*\}", resp["message"]["content"], re.DOTALL)
+                if not m:
+                    continue
+                d = json.loads(m.group())
+                row = {"post_id": c.get("post_id"), "text": t,
+                       "has_claim": bool(d.get("has_claim", False)),
+                       "thought": str(d.get("thought", "")), "reason": str(d.get("reason", ""))}
+                cf.write(json.dumps(row, ensure_ascii=False) + "\n"); cf.flush()
+                cache.append(row)
+                if i % 10 == 0:
+                    print(f"  labeled {i}/{len(todo)} new")
+            except Exception as e:
+                print(f"  teacher error on #{i}: {e}")
+
+    labeled = [{k: c[k] for k in ("text", "has_claim", "thought", "reason")} for c in cache]
     combined = seed + labeled
     bad = [e for e in combined if norm(e["text"]) in eval_norm]
     assert not bad, f"LEAK: {len(bad)} training rows are in the eval set"
@@ -186,7 +200,8 @@ def phase_label(teacher: str) -> None:
     claims = sum(1 for e in combined if e["has_claim"])
     print(f"\nWrote {OUT}: {len(combined)} examples "
           f"({claims} claim / {len(combined) - claims} opinion). "
-          f"Seed {len(seed)} + teacher {len(labeled)}. Leak-free.")
+          f"Seed {len(seed)} + teacher {len(labeled)}. Leak-free. "
+          f"Re-runs reuse {CACHE} (delete it to force re-labeling).")
 
 
 def main():
