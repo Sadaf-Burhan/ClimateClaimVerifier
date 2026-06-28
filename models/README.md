@@ -18,5 +18,8 @@ precision/recall tradeoff is visible, but it is not the deployed model.
 The model name `qwen2.5-3b-claim-lora` must match `model.adapter_name` in
 `src/climate_verifier/config.yaml`.
 
-Note: the GGUF is 4-bit quantized (q4_k_m), so its outputs can differ marginally from the
-fp16 adapter measured in the eval — expected, and fine for the qualitative demo.
+Note on quantization: q4_k_m (~1.9 GB) drifts marginally from the fp16 adapter on
+borderline cases — it flipped the denial-with-statistic acceptance test ("50,000 acres…")
+to opinion. **q8_0 (~3.3 GB) is near-lossless and matches the fp16 adapter on all
+acceptance cases** (the 50k post stays `claim`), so it's the recommended export for the
+demo. The authoritative metrics are always the fp16 eval (recall 0.854 / precision 0.788).
