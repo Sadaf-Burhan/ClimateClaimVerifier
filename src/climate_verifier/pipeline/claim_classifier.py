@@ -223,6 +223,61 @@ def classify(post_text: str, model: str = "gemma2:2b") -> dict:
         return {"has_claim": False, "reason": f"Classifier error: {e}"}
 
 
+# Lean zero-shot prompt — matches the LoRA adapter's training format exactly
+# (no few-shot; the adapter internalized the task). Used only to SERVE the adapter
+# in the Week 5 comparison, not in the production pipeline.
+_LEAN_SYSTEM = (
+    "You are a climate claim detector. Decide whether a post contains a verifiable "
+    "factual claim about a climate or extreme weather event. A CLAIM has a specific "
+    "checkable assertion — a named event, measurement, official source, date, place, or "
+    "mechanism — checkable even if false; a checkable fact embedded in a rant is still a "
+    "CLAIM. An OPINION has nothing checkable: feelings, jokes, vague conspiracy "
+    "accusations, personal experiences, or general viewpoints. First note in `thought` "
+    "what is checkable, then decide. JSON only."
+)
+
+
+def classify_lean(post_text: str, model: str) -> dict:
+    """
+    Classify one post with the LEAN zero-shot prompt the LoRA adapter was trained on
+    (system + post -> JSON). `model` is the adapter's Ollama model name (a registered
+    GGUF). Returns {"has_claim": bool|None, "reason": str, "thought": str}; has_claim is
+    None on error (e.g. the adapter model is not registered in Ollama) so callers can
+    show setup guidance instead of a wrong label.
+    """
+    try:
+        response = ollama.chat(
+            model=model,
+            messages=[
+                {"role": "system", "content": _LEAN_SYSTEM},
+                {"role": "user",   "content": f'Post: "{post_text[:MAX_POST_CHARS]}"'},
+            ],
+            format={
+                "type": "object",
+                "properties": {
+                    "thought":   {"type": "string"},
+                    "has_claim": {"type": "boolean"},
+                    "reason":    {"type": "string"},
+                },
+                "required": ["thought", "has_claim", "reason"],
+            },
+            options={"temperature": 0.0, "num_predict": 200},
+            keep_alive=KEEP_ALIVE,
+        )
+        raw = response["message"]["content"].strip()
+        match = re.search(r'\{.*\}', raw, re.DOTALL)
+        if match:
+            data = json.loads(match.group())
+            return {
+                "has_claim": bool(data.get("has_claim", False)),
+                "reason":    str(data.get("reason", "")),
+                "thought":   str(data.get("thought", "")),
+            }
+        return {"has_claim": False, "reason": f"Could not parse: {raw[:80]}", "thought": ""}
+    except Exception as e:
+        return {"has_claim": None, "reason": f"Adapter call failed: {e}", "thought": ""}
+
+
 def classify_pending(db_path: str, model: str, batch_size: int = 50,
                      llm_batch_size: int = LLM_BATCH_SIZE):
     """

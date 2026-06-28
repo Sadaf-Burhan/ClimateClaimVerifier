@@ -4,6 +4,8 @@ model:
   llm_batch_size: 1    # single-post: batching 16/call cost ~0.19 recall (3B model drifts).
                        # 1/call hits the 0.90 recall target but is ~16x more calls — run the
                        # backlog on GPU/Colab. Raise (e.g. 4) only to trade recall for speed.
+  adapter_name: "qwen2.5-3b-claim-lora"  # Week-5 LoRA, registered in Ollama as a GGUF.
+                       # Demo-only (the Base vs Adapter tab); NOT the production model.
 
 embedding:
   model_name: "all-MiniLM-L6-v2"   # sentence-transformers; higher MTEB STS scores than nomic-embed-text

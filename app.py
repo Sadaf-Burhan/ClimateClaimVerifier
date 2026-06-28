@@ -17,6 +17,8 @@ from pathlib import Path
 
 from climate_verifier.pipeline.claim_classifier import (
     classify_pending,
+    classify_batch,
+    classify_lean,
     get_top_claims,
     get_top_opinions,
     get_stats,
@@ -41,6 +43,8 @@ with open(CONFIG_PATH) as f:
 DB_PATH        = cfg["storage"]["db_path"]
 MODEL          = cfg["model"]["name"]
 LLM_BATCH_SIZE = cfg["model"].get("llm_batch_size", 16)
+# Week 5 comparison: the LoRA adapter, registered in Ollama as a GGUF model.
+ADAPTER_MODEL  = cfg["model"].get("adapter_name", "qwen2.5-3b-claim-lora")
 EMBED_MODEL    = cfg["embedding"]["model_name"]
 EVAL_CSV       = Path(cfg["evaluation"]["claim_eval_csv"])
 CLAIM_RECALL_TARGET = float(cfg["evaluation"]["claim_recall_target"])
@@ -57,7 +61,11 @@ st.title("🌪️ Climate Claim Scanner")
 st.caption("NA Extreme Weather · Week 1: LLM Classification · Week 2: Embedding Analysis")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2 = st.tabs(["🔍 Claim Classifier  (Week 1)", "🧬 Embedding Analysis  (Week 2)"])
+tab1, tab2, tab3 = st.tabs([
+    "🔍 Claim Classifier  (Week 1)",
+    "🧬 Embedding Analysis  (Week 2)",
+    "🧪 Base vs Adapter  (Week 5)",
+])
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — CLAIM CLASSIFIER
@@ -385,3 +393,85 @@ with tab2:
                     "Higher = posts in that category are more semantically similar to each other. "
                     "Scientific posts are expected to cluster tighter than conspiracy posts."
                 )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 3 — BASE vs ADAPTER  (Week 5)
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab3:
+    st.subheader("🧪 Week 5 — Base vs LoRA Adapter")
+    st.caption(
+        "A comparison harness, **not** a production switch. The shipped classifier is the "
+        f"base `{MODEL}` (recall-first). The adapter is the Week-5 precision experiment — "
+        "kept here only to make the precision/recall tradeoff visible on real inputs."
+    )
+
+    with st.expander("What differs between the two calls?"):
+        st.markdown(
+            f"""
+| | Base (production) | Adapter (demo) |
+|---|---|---|
+| Model | `{MODEL}` | `{ADAPTER_MODEL}` (LoRA → GGUF in Ollama) |
+| Prompt | 8 few-shot examples | lean, zero-shot (few-shot folded into the weights) |
+
+**Both the model path *and* the prompt format change** — the adapter was trained on the lean
+prompt, so it must be served on it. Verdict from the eval: the adapter raised precision but
+could not hold recall ≥ 0.90 **and** precision ≥ 0.85 together, so it is not deployed.
+"""
+        )
+
+    examples = {
+        "Vague conspiracy (they should DISAGREE)":
+            "Weather manipulation is real and they do not want you to know",
+        "Denial + statistic (they should AGREE — claim)":
+            "50,000 acres of ice sheets have melted, what a lie these governments are trying to convince people of Alaska",
+        "Specific conspiracy (claim)":
+            "Cloud seeding planes triggered the flash floods in Dubai last week",
+    }
+    pick = st.selectbox("Try a revealing example, or type your own below:", ["—"] + list(examples))
+    default_text = examples.get(pick, "")
+    post = st.text_area("Post to classify", value=default_text, height=90,
+                        placeholder="Paste a climate / weather social media post...")
+
+    if st.button("Compare base vs adapter", type="primary"):
+        if not post.strip():
+            st.warning("Enter a post first.")
+        else:
+            col_base, col_adapter = st.columns(2)
+
+            with col_base:
+                st.markdown(f"#### Base · `{MODEL}`")
+                st.caption("8 few-shot prompt · production")
+                with st.spinner("Base classifying..."):
+                    b = classify_batch([post], model=MODEL)[0]
+                (st.success if b["has_claim"] else st.warning)(
+                    "**CLAIM**" if b["has_claim"] else "**OPINION**")
+                st.caption(f"Reason: {b['reason']}")
+
+            with col_adapter:
+                st.markdown(f"#### Adapter · `{ADAPTER_MODEL}`")
+                st.caption("lean zero-shot prompt · Week 5 experiment")
+                with st.spinner("Adapter classifying..."):
+                    a = classify_lean(post, model=ADAPTER_MODEL)
+                if a["has_claim"] is None:
+                    st.error(
+                        f"Adapter not available — {a['reason']}\n\n"
+                        f"Register it in Ollama first: convert the LoRA to GGUF, then "
+                        f"`ollama create {ADAPTER_MODEL} -f Modelfile`."
+                    )
+                else:
+                    (st.success if a["has_claim"] else st.warning)(
+                        "**CLAIM**" if a["has_claim"] else "**OPINION**")
+                    if a["thought"]:
+                        st.caption(f"Thought: {a['thought']}")
+                    st.caption(f"Reason: {a['reason']}")
+
+            if a["has_claim"] is not None:
+                if a["has_claim"] == b["has_claim"]:
+                    st.info("Both models agree on this post.")
+                else:
+                    st.info(
+                        "⚡ The models **disagree** — this is the precision/recall tradeoff in "
+                        "action: the adapter is stricter about what counts as a claim, which "
+                        "raises precision but is what costs recall elsewhere."
+                    )
