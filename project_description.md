@@ -104,10 +104,11 @@ Social Media Posts (Bluesky + GDELT)
       Claims proceed to next stage
            │
            ▼
-  [4] EVIDENCE MATCHING        — no LLM RAG (Week 6)
-      all-MiniLM-L6-v2 embeddings + ChromaDB
-      Retrieve top-k similar GDELT news articles per claim
-      -> "evidence proximity" signal (does published news cover it?)
+  [4] EVIDENCE MATCHING        — RAG: embeddings + LLM re-rank (Week 6)
+      all-MiniLM-L6-v2 + ChromaDB: retrieve top-k similar GDELT news per claim,
+      then an LLM corroboration re-rank — does any article describe the SAME
+      specific event? (corroborated / partial / none) — a relevance signal,
+      never a truth verdict. Separates topical overlap from real corroboration.
            │
            ▼
   [5] SIGNAL ASSEMBLY          — no LLM

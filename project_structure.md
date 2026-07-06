@@ -57,19 +57,25 @@ ClimateClaimVerifier/
             ├── topic_filter.py         ← Pre-LLM keyword relevance gate
             ├── claim_classifier.py     ← Weeks 1/4/5: LLM classifier + adapter-serving helper
             ├── evaluate.py             ← Week 1: classifier quality metrics
-            └── embedder.py             ← Week 2: sentence-transformer embeddings
+            ├── embedder.py             ← Week 2: sentence-transformer embeddings
+            └── evidence.py             ← Week 6: evidence matching (GDELT RAG + corroboration re-rank)
 ```
+
+The `data/chroma_evidence/` ChromaDB store (gitignored) is rebuilt from the DB by `evidence.py`.
 
 ---
 
 ## File by File
 
 ### `app.py`
-Streamlit dashboard with **three tabs**:
+Streamlit dashboard with **four tabs**:
 - **Tab 1 — Claim Classifier**: ingestion status, run-classifier buttons, top claims/opinions,
   classifier evaluation (recall-on-CLAIM criterion, confusion matrix, error breakdowns)
 - **Tab 2 — Embedding Analysis**: interactive similarity checker, pair eval, category clustering
-- **Tab 3 — Base vs Adapter (Week 5)**: a *comparison harness* (not a production switch) — runs a
+- **Tab 3 — Evidence Matching (Week 6)**: build the GDELT index, assess a single claim (retrieval +
+  corroboration verdict + reader signal + red flag), and scan the top-engagement claims for
+  reach-vs-support red flags.
+- **Tab 4 — Base vs Adapter (Week 5)**: a *comparison harness* (not a production switch) — runs a
   post through the base classifier (8-shot prompt) and the LoRA adapter (lean prompt, served via
   Ollama as a GGUF) side by side, with a direction-aware agreement/disagreement message.
 
@@ -148,6 +154,22 @@ and `post_type`. Run: `uv run python -m climate_verifier.pipeline.evaluate`.
 `sentence-transformers` with `all-MiniLM-L6-v2` (chosen over `nomic-embed-text` for higher MTEB STS).
 `similarity`, `eval_pairs`, `category_similarity_stats`. Foundation for Week-6 RAG evidence retrieval.
 
+### `pipeline/evidence.py` — Week 6 (Evidence Matching / RAG)
+Stage 4. A persistent ChromaDB collection of **GDELT news articles** (`all-MiniLM-L6-v2`, cosine),
+excluding any post flagged `in_eval_set`/`in_train_set`. For each classified claim:
+1. **Dense retrieval** — top-k nearest news articles (`evidence_for_claim`).
+2. **Corroboration re-rank** (`corroboration_check`) — an LLM re-reads the claim against the
+   retrieved articles and judges whether any describes the *same specific event*
+   (`corroborated` / `partial` / `none`). This separates topical overlap from real corroboration —
+   dense similarity alone scores a conspiracy claim high just for sharing a topic (Module 6's
+   re-ranking lesson). **A relevance judgment, never a truth verdict.**
+3. **Reader signal** (`build_reader_signal`) — a plain-language, *suggestive* summary plus the
+   **reach-vs-support red flag**: high engagement + no corroboration + unverified source =
+   misinformation amplification pattern. The system never says "false".
+
+`assess_claim` runs all three; `assess_db_claims` assesses the top-engagement claims. Build the
+index: `uv run python -m climate_verifier.pipeline.evidence --build`.
+
 ---
 
 ## Week 5 — LoRA adapter (trained, evaluated, NOT deployed)
@@ -170,6 +192,12 @@ model:
   adapter_name: "qwen2.5-3b-claim-lora"   # demo-only LoRA, registered in Ollama as a GGUF
 embedding:
   model_name: "all-MiniLM-L6-v2"
+evidence:                                 # Week 6 — GDELT evidence matching
+  chroma_path: data/chroma_evidence       # persistent vector store (gitignored)
+  top_k: 5                                # nearest news articles per claim
+  high_proximity: 0.60                    # retrieval tier thresholds
+  low_proximity: 0.40
+  high_reach: 50                          # engagement >= this = "high reach" for the red flag
 evaluation:
   claim_eval_csv: data/claim_eval.csv
   claim_recall_target: 0.90
