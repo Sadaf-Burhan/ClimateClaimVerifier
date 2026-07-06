@@ -175,6 +175,11 @@ The red flag has **two guards** so legitimate posts aren't flagged just for lack
   (`evidence.official_sources`) posting a warning/forecast isn't flagged (news can't corroborate a
   *future* event). Matched conservatively by exact-or-dotted-suffix, so an "altgov" lookalike
   (`altcdc.altgov.info`) does **not** pass as `nws.noaa.gov`.
+- **Reshares an official source** — a post that *links* an official-allowlist domain (e.g. an NWS
+  advisory URL) is resharing that source, so credibility is credited to the origin and it isn't
+  flagged even from an unverified account. This is the *link* form of resharing; the *quote-post*
+  form (quoting another Bluesky account) needs ingestion to capture `post.embed` provenance — see
+  Next Steps.
 
 `assess_claim` runs all three; `assess_db_claims` assesses the top-engagement claims. Build the
 index: `uv run python -m climate_verifier.pipeline.evidence --build`.
@@ -232,7 +237,17 @@ The Base-vs-Adapter tab needs the LoRA registered in Ollama — see `models/READ
 
 ---
 
-## Week 7 — Next Steps (Multimodality)
+## Next Steps
+
+### Quote-post reshare provenance (ingestion change)
+The red flag already credits credibility to the origin when a post **links** an official source
+(the *link* form of resharing). The **quote-post** form — a Bluesky post quoting another account's
+post — is not yet captured: `ingestion/bluesky.py` reads `post.record` but not `post.embed`, where
+the quoted post's author/URI live. Capturing it needs a schema column (e.g. `reshare_of_author`),
+an ingestion change in both the SDK and raw-HTTP paths, and a re-ingest to populate existing rows.
+Then a reshare of an official/corroborated post would inherit the origin's credibility structurally.
+
+### Week 7 — Multimodality
 
 Testing the top-claims scan surfaced a class of posts the text-only pipeline can't resolve: a
 first-person field observation with a **photo** (e.g. *"this deep sinkhole appeared at our field

@@ -226,6 +226,11 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
     art = corro.get("article", 0)
     cited = matches[art - 1] if verdict != "none" and 1 <= art <= n else None
     credible_cite = any(c["credible"] for c in citations)
+    # A post that LINKS an official source (e.g. an NWS advisory) is *resharing* that
+    # source — credibility travels with the origin, not the resharer — so it is treated
+    # as official even from an unverified account.
+    reshared_official = any(c.get("official") for c in citations)
+    treated_official = official or reshared_official
 
     if verdict == "corroborated" and cited:
         evidence_phrase = (f"A retrieved news article appears to report this event ({cited['domain']}) — "
@@ -238,6 +243,10 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
 
     if official:
         src_phrase = f"Source: a verified official source ({author or domain})."
+    elif reshared_official and source == "bluesky":
+        off_dom = next((c["domain"] for c in citations if c.get("official")), "")
+        src_phrase = (f"Source: an unverified account, but it reshares an official source ({off_dom}) — "
+                      "credibility credited to the origin, not the account.")
     elif source == "bluesky":
         src_phrase = f"Source: an unverified social account ({followers:,} followers)."
     else:
@@ -252,9 +261,9 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
     reach_phrase = f"Reach: {engagement:,} engagements." if engagement else "Reach: low engagement."
 
     # Red flag ONLY when the reach-vs-support mismatch is real: high reach, no corroboration,
-    # unverified social account, NOT official, and NO credible self-citation.
+    # unverified social account, NOT official (directly or via reshare), and NO credible cite.
     red_flag = (engagement >= high_reach and verdict == "none"
-                and source == "bluesky" and not official and not credible_cite)
+                and source == "bluesky" and not treated_official and not credible_cite)
 
     parts = [evidence_phrase, src_phrase]
     if cite_phrase:
@@ -267,7 +276,8 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
     return {"summary": " ".join(parts), "red_flag": red_flag, "verdict": verdict,
             "proximity": retrieval["proximity"], "reason": corro.get("reason", ""),
             "cited": cited, "official": official, "self_cited": bool(citations),
-            "credible_cite": credible_cite}
+            "credible_cite": credible_cite, "reshared_official": reshared_official,
+            "treated_official": treated_official}
 
 
 def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int = 0,
@@ -281,8 +291,11 @@ def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int
                                          high=ev.get("high_proximity", 0.60),
                                          low=ev.get("low_proximity", 0.40))
     corro = corroboration_check(claim_text, retrieval["matches"], model=cfg["model"]["name"])
+    official_list = ev.get("official_sources", [])
     citations = extract_citations(claim_text, ev.get("citation_domains", []))
-    official = is_official(author, domain, ev.get("official_sources", []))
+    for c in citations:                                  # does the link reshare an official source?
+        c["official"] = is_official(c["domain"], "", official_list)
+    official = is_official(author, domain, official_list)
     signal = build_reader_signal(retrieval, corro, engagement, source, followers=followers,
                                  domain=domain, author=author, citations=citations,
                                  official=official, high_reach=ev.get("high_reach", 50))

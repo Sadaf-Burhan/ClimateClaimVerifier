@@ -552,6 +552,8 @@ with tab4:
                          "(misinformation pattern).")
             elif a["official"]:
                 st.info("✓ Official source — legitimate warnings/forecasts aren't flagged even without news corroboration.")
+            elif sig.get("reshared_official"):
+                st.info("✓ Reshares an official source — credibility credited to the origin, not the account.")
             elif sig.get("credible_cite"):
                 st.info("✓ Post self-cites a credible source — it supplies its own evidence for you to review.")
             st.caption(f"**Reader signal:** {sig['summary']}")
