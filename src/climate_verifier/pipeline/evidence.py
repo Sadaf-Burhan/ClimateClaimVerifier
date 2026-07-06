@@ -41,6 +41,16 @@ def _load_cfg() -> dict:
         return yaml.safe_load(f)
 
 
+def _iso_date(created_at: str) -> str:
+    """Normalize a stored timestamp to YYYY-MM-DD. GDELT uses the compact
+    'YYYYMMDDTHHMMSSZ' form (a bare [:10] slice yields '20260605T2'); ISO
+    timestamps already start with the date."""
+    s = created_at or ""
+    if len(s) >= 8 and s[:8].isdigit():          # GDELT compact 20260605T221500Z
+        return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+    return s[:10]                                # ISO 2026-06-05T... -> 2026-06-05
+
+
 class ClimateEvidenceStore:
     """Persistent ChromaDB collection of GDELT news articles, queried by claim text."""
 
@@ -83,7 +93,7 @@ class ClimateEvidenceStore:
                     "domain":   r["author"] or "",
                     "url":      r["post_id"],
                     "category": r["keyword_category"] or "",
-                    "date":     (r["created_at"] or "")[:10],
+                    "date":     _iso_date(r["created_at"]),
                 } for r in rows],
             )
         return self.collection.count()
