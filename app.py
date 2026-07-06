@@ -33,6 +33,7 @@ from climate_verifier.pipeline.embedder import (
     eval_pairs,
     category_similarity_stats,
 )
+from climate_verifier.pipeline.evidence import get_store, assess_claim, assess_db_claims
 from climate_verifier.ingestion.store import get_last_ingestion_time, hours_since_last_ingestion
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -61,9 +62,10 @@ st.title("🌪️ Climate Claim Scanner")
 st.caption("NA Extreme Weather · Week 1: LLM Classification · Week 2: Embedding Analysis")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2, tab4, tab3 = st.tabs([
     "🔍 Claim Classifier  (Week 1)",
     "🧬 Embedding Analysis  (Week 2)",
+    "🔎 Evidence Matching  (Week 6)",
     "🧪 Base vs Adapter  (Week 5)",
 ])
 
@@ -494,3 +496,76 @@ could not hold recall ≥ 0.90 **and** precision ≥ 0.85 together, so it is not
                         "the post names something specific and checkable; on a vague rant this would "
                         "be the kind of false positive the adapter is usually trained to avoid."
                     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TAB 4 — EVIDENCE MATCHING  (Week 6)
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab4:
+    st.subheader("🔎 Week 6 — Evidence Matching (RAG)")
+    st.caption(
+        "Stage 4: for a classified **claim**, retrieve the nearest **GDELT news** articles "
+        "(ChromaDB · all-MiniLM-L6-v2), then an LLM re-rank judges whether any article describes "
+        "the *same specific event* — a **corroboration** signal, not a truth verdict. Combined with "
+        "reach (engagement) it surfaces the **reach-vs-support mismatch**: a claim spreading widely "
+        "with no news backing from an unverified source is the misinformation red flag."
+    )
+
+    @st.cache_resource
+    def _evidence_store():
+        return get_store()
+
+    store = _evidence_store()
+    n_idx = store.count()
+
+    c1, c2 = st.columns([2, 1])
+    c1.info(f"Evidence index: **{n_idx}** GDELT news articles" if n_idx else "Evidence index is empty — build it first.")
+    if c2.button("🔃 Build / refresh index"):
+        with st.spinner("Embedding GDELT articles into ChromaDB..."):
+            n = store.build_index(DB_PATH)
+        st.success(f"Index built — {n} articles.")
+        st.rerun()
+
+    st.divider()
+    st.markdown("### Assess a claim")
+    claim_text = st.text_area("Claim text", placeholder="e.g. HAARP technology is causing the Alberta floods", height=80)
+    eng = st.number_input("Reach (engagement = likes + reposts + replies + quotes)", min_value=0, value=0, step=10)
+    if st.button("Assess against news evidence", type="primary"):
+        if not claim_text.strip():
+            st.warning("Enter a claim.")
+        elif n_idx == 0:
+            st.warning("Build the evidence index first.")
+        else:
+            with st.spinner("Retrieving news + checking corroboration..."):
+                a = assess_claim(store, claim_text, engagement=int(eng), source="bluesky", cfg=cfg)
+            corro, sig = a["corroboration"], a["signal"]
+            {"corroborated": st.success, "partial": st.warning, "none": st.error}[corro["verdict"]](
+                f"**{corro['verdict'].upper()}** — {corro['reason']}")
+            if sig["red_flag"]:
+                st.error("🚩 RED FLAG — high reach, no corroboration, unverified source (misinformation pattern).")
+            st.caption(f"**Reader signal:** {sig['summary']}")
+            st.markdown("**Nearest news articles (retrieval):**")
+            for m in a["retrieval"]["matches"]:
+                st.markdown(f"- `{m['similarity']:.3f}` · [{m['domain']}] {m['title'][:100]}")
+
+    st.divider()
+    st.markdown("### Scan top claims for red flags")
+    st.caption("Assesses the highest-engagement classified claims — where a reach-vs-support mismatch matters most (one LLM call each).")
+    n_scan = st.slider("How many top claims to scan", 5, 25, 10)
+    if st.button(f"Scan top {n_scan} claims"):
+        if n_idx == 0:
+            st.warning("Build the evidence index first.")
+        else:
+            with st.spinner(f"Assessing {n_scan} claims..."):
+                results = assess_db_claims(store, DB_PATH, limit=n_scan, cfg=cfg)
+            flags = [r for r in results if r["signal"]["red_flag"]]
+            st.write(f"**{len(flags)} red-flag claims** of {len(results)} scanned "
+                     "(high reach + no corroboration + unverified source).")
+            for r in results:
+                sig = r["signal"]
+                icon = "🚩" if sig["red_flag"] else ("✅" if sig["verdict"] == "corroborated" else "•")
+                with st.expander(f"{icon}  [{r['engagement']}]  {r['text'][:70]}"):
+                    st.markdown(f"**Post:** {r['text']}")
+                    st.markdown(f"**@{r['author']}** · {r['source']} · {r['engagement']} engagements")
+                    st.caption(f"Corroboration: **{sig['verdict']}** — {sig['reason']}")
+                    st.caption(f"Reader signal: {sig['summary']}")

@@ -206,6 +206,32 @@ def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int
     return {"retrieval": retrieval, "corroboration": corro, "signal": signal}
 
 
+def assess_db_claims(store: "ClimateEvidenceStore", db_path: str, limit: int = 10,
+                     cfg: dict | None = None) -> list[dict]:
+    """Assess the top classified claims by engagement (the highest-reach claims —
+    where a reach-vs-support mismatch matters most). One LLM call per claim."""
+    cfg = cfg or _load_cfg()
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    rows = con.execute("""
+        SELECT p.text, p.source, p.author, p.author_followers,
+               (p.likes + p.reposts + p.replies + p.quotes) AS engagement
+        FROM posts p JOIN classifications c ON p.post_id = c.post_id
+        WHERE c.has_claim = 1
+        ORDER BY engagement DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+    con.close()
+    out = []
+    for r in rows:
+        a = assess_claim(store, r["text"], engagement=r["engagement"], source=r["source"],
+                         followers=r["author_followers"] or 0,
+                         domain=r["author"] if r["source"] == "gdelt" else "", cfg=cfg)
+        out.append({"text": r["text"], "author": r["author"], "source": r["source"],
+                    "engagement": r["engagement"], **a})
+    return out
+
+
 def get_store() -> ClimateEvidenceStore:
     cfg = _load_cfg()
     ev = cfg.get("evidence", {})
