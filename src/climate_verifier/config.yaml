@@ -10,6 +10,13 @@ model:
 embedding:
   model_name: "all-MiniLM-L6-v2"   # sentence-transformers; higher MTEB STS scores than nomic-embed-text
 
+evidence:                          # Week 6 — evidence matching (GDELT news corroboration via ChromaDB)
+  chroma_path: data/chroma_evidence   # persistent vector store (gitignored)
+  top_k: 5                            # nearest GDELT articles retrieved per claim
+  high_proximity: 0.60                # >= : published news covers a similar event  (HIGH)
+  low_proximity: 0.40                 # <  : no corroboration                       (NONE)
+  high_reach: 50                      # engagement >= this counts as "high reach" for the red flag
+
 evaluation:
   claim_eval_csv: data/claim_eval.csv   # hand-labeled eval set (60 posts, stratified by category + post type)
   claim_recall_target: 0.90             # success criterion — a missed claim (FN) is the costly, unrecoverable error

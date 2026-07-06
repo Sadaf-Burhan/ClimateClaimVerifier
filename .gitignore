@@ -22,6 +22,9 @@ tmp/
 *.gguf
 models/*.gguf
 
+# ChromaDB evidence vector store (rebuilt from the DB)
+data/chroma_evidence/
+
 # OS
 .DS_Store
 
