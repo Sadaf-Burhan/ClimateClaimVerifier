@@ -47,7 +47,7 @@ evidence:                          # Week 6 — evidence matching (GDELT news co
     - theguardian.com
 
 vision:                            # Week 7 — GATED image modality (edge cases only, not per-post)
-  model: "qwen2.5-vl"               # natural-photo + OCR; disambiguates real-photo vs cartoon/meme
+  model: "qwen2.5vl:7b"             # Ollama tag; natural-photo + OCR; real-photo vs cartoon/meme
   corrector_model: "qwen2.5:3b"     # reformats malformed vision JSON — never sees the image
   gate_categories:                  # precision-weak zones to escalate (claim + image + no metadata support)
     - conspiracy
