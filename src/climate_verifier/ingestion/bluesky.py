@@ -31,24 +31,77 @@ def _get_client() -> Client:
 
 _PROFILE_BATCH = 25  # Bluesky get_profiles accepts max 25 DIDs per call
 
+_EMPTY_PROFILE = {"followers": 0, "bio": "", "posts_count": 0, "created_at": ""}
 
-def _batch_follower_counts(client: Client, dids: list[str]) -> dict[str, int]:
+
+def _batch_profiles(client: Client, dids: list[str]) -> dict[str, dict]:
     """
-    Fetch follower counts for a list of DIDs in batches of 25.
-    Returns a dict of {did: followers_count}.
-    One batch call instead of one API call per post — ~25x faster.
+    Fetch author profiles for a list of DIDs in batches of 25 — one batch call
+    instead of one per post (~25x fewer calls). Returns {did: {followers, bio,
+    posts_count, created_at}}. bio/posts_count/account age are behavioural
+    reliability signals captured at no extra cost (same call as follower count).
     """
-    counts: dict[str, int] = {}
+    out: dict[str, dict] = {}
     for i in range(0, len(dids), _PROFILE_BATCH):
         batch = dids[i:i + _PROFILE_BATCH]
         try:
             resp = client.app.bsky.actor.get_profiles({"actors": batch})
-            for profile in resp.profiles:
-                counts[profile.did] = profile.followers_count or 0
+            for pr in resp.profiles:
+                out[pr.did] = {
+                    "followers":   getattr(pr, "followers_count", 0) or 0,
+                    "bio":         getattr(pr, "description", "") or "",
+                    "posts_count": getattr(pr, "posts_count", 0) or 0,
+                    "created_at":  getattr(pr, "created_at", None) or getattr(pr, "indexed_at", "") or "",
+                }
         except Exception:
             for did in batch:
-                counts[did] = 0
-    return counts
+                out.setdefault(did, dict(_EMPTY_PROFILE))
+    return out
+
+
+def _acc(obj, *keys):
+    """Nested attr/dict getter — defensive across SDK objects and raw dicts; None on any miss."""
+    for k in keys:
+        if obj is None:
+            return None
+        obj = obj.get(k) if isinstance(obj, dict) else getattr(obj, k, None)
+    return obj
+
+
+def _extract_embed(embed) -> dict:
+    """
+    Pull media + provenance from a Bluesky post embed (SDK object OR raw dict).
+    Handles images / external / record (quote) / recordWithMedia. Defensive:
+    any unknown or mixed embed shape degrades to empty rather than raising —
+    ingestion must never crash on a new embed type.
+    """
+    out = {"has_image": 0, "image_url": None, "image_alt": None,
+           "external_url": None, "external_title": None,
+           "reshare_of_author": None, "reshare_of_uri": None}
+    if embed is None:
+        return out
+    try:
+        # recordWithMedia nests images/external under .media; plain embeds have them directly.
+        media = _acc(embed, "media") or embed
+        images = _acc(media, "images")
+        img = images[0] if images else None
+        if img is not None:
+            out["has_image"] = 1
+            out["image_url"] = _acc(img, "fullsize") or _acc(img, "thumb")
+            out["image_alt"] = _acc(img, "alt")
+        ext = _acc(media, "external")
+        if ext is not None:
+            out["external_url"] = _acc(ext, "uri")
+            out["external_title"] = _acc(ext, "title")
+        # Quote/reshare: record#view has author/uri directly; recordWithMedia nests it one deeper.
+        rec = _acc(embed, "record")
+        inner = _acc(rec, "record") or rec
+        if inner is not None:
+            out["reshare_of_author"] = _acc(inner, "author", "handle")
+            out["reshare_of_uri"] = _acc(inner, "uri")
+    except Exception:
+        pass
+    return out
 
 
 def _fetch_posts_raw(client: Client, params: dict, keyword: str) -> list[dict]:
@@ -69,26 +122,31 @@ def _fetch_posts_raw(client: Client, params: dict, keyword: str) -> list[dict]:
 
     raw = data.get("posts", [])
     dids = [p.get("author", {}).get("did", "") for p in raw]
-    follower_map = _batch_follower_counts(client, dids)
+    profiles = _batch_profiles(client, dids)
 
     posts = []
     for post in raw:
         record = post.get("record", {})
         author = post.get("author", {})
         did = author.get("did", "")
+        pr = profiles.get(did, _EMPTY_PROFILE)
         posts.append({
-            "source":           "bluesky",
-            "keyword":          keyword,
-            "post_id":          post.get("uri", ""),
-            "author":           author.get("handle", ""),
-            "author_followers": follower_map.get(did, 0),
-            "text":             record.get("text", ""),
-            "created_at":       record.get("createdAt", ""),
-            "likes":            post.get("likeCount", 0) or 0,
-            "reposts":          post.get("repostCount", 0) or 0,
-            "replies":          post.get("replyCount", 0) or 0,
-            "quotes":           post.get("quoteCount", 0) or 0,
-            "ingested_at":      datetime.now(timezone.utc).isoformat(),
+            "source":            "bluesky",
+            "keyword":           keyword,
+            "post_id":           post.get("uri", ""),
+            "author":            author.get("handle", ""),
+            "author_followers":  pr["followers"],
+            "author_bio":        pr["bio"],
+            "author_post_count": pr["posts_count"],
+            "author_created_at": pr["created_at"],
+            "text":              record.get("text", ""),
+            "created_at":        record.get("createdAt", ""),
+            "likes":             post.get("likeCount", 0) or 0,
+            "reposts":           post.get("repostCount", 0) or 0,
+            "replies":           post.get("replyCount", 0) or 0,
+            "quotes":            post.get("quoteCount", 0) or 0,
+            "ingested_at":       datetime.now(timezone.utc).isoformat(),
+            **_extract_embed(post.get("embed")),
         })
     return posts
 
@@ -115,25 +173,30 @@ def fetch_posts(keyword: str, limit: int, since: str | None = None) -> list[dict
         print(f"  Bluesky SDK parse error for '{keyword}' — falling back to raw HTTP")
         return _fetch_posts_raw(client, params, keyword)
 
-    # Batch follower lookup — 4 calls for 100 posts instead of 100 calls
+    # Batch profile lookup — 4 calls for 100 posts instead of 100 calls
     dids = [p.author.did for p in raw_posts]
-    follower_map = _batch_follower_counts(client, dids)
+    profiles = _batch_profiles(client, dids)
 
     posts = []
     for post in raw_posts:
+        pr = profiles.get(post.author.did, _EMPTY_PROFILE)
         posts.append({
-            "source":           "bluesky",
-            "keyword":          keyword,
-            "post_id":          post.uri,
-            "author":           post.author.handle,
-            "author_followers": follower_map.get(post.author.did, 0),
-            "text":             post.record.text,
-            "created_at":       post.record.created_at,
-            "likes":            post.like_count or 0,
-            "reposts":          post.repost_count or 0,
-            "replies":          post.reply_count or 0,
-            "quotes":           post.quote_count or 0,
-            "ingested_at":      datetime.now(timezone.utc).isoformat(),
+            "source":            "bluesky",
+            "keyword":           keyword,
+            "post_id":           post.uri,
+            "author":            post.author.handle,
+            "author_followers":  pr["followers"],
+            "author_bio":        pr["bio"],
+            "author_post_count": pr["posts_count"],
+            "author_created_at": pr["created_at"],
+            "text":              post.record.text,
+            "created_at":        post.record.created_at,
+            "likes":             post.like_count or 0,
+            "reposts":           post.repost_count or 0,
+            "replies":           post.reply_count or 0,
+            "quotes":            post.quote_count or 0,
+            "ingested_at":       datetime.now(timezone.utc).isoformat(),
+            **_extract_embed(getattr(post, "embed", None)),
         })
     return posts
 

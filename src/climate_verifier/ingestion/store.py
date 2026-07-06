@@ -8,6 +8,40 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Canonical post columns — drives both the INSERT and the per-post default fill,
+# so adding a field means editing this one list (+ _NEW_COLUMNS for migration).
+POST_COLUMNS = [
+    "post_id", "source", "keyword", "keyword_category", "author", "author_followers",
+    "text", "created_at", "likes", "reposts", "replies", "quotes", "ingested_at",
+    # --- Week 7 multimodal rebuild: media / provenance / author signals ---
+    "has_image", "image_url", "image_alt",            # image METADATA (universal, cheap; no download)
+    "reshare_of_author", "reshare_of_uri",            # quote-post provenance (post.embed record)
+    "external_url", "external_title",                 # linked source (post.embed external)
+    "author_bio", "author_post_count", "author_created_at",  # from the same get_profiles call
+    "vision_signal",                                  # DERIVED later, edge-cases only (JSON); NULL at ingest
+]
+
+# Columns added after the original schema — ALTER-ed onto existing DBs on open.
+_NEW_COLUMNS = {
+    "has_image": "INTEGER DEFAULT 0", "image_url": "TEXT", "image_alt": "TEXT",
+    "reshare_of_author": "TEXT", "reshare_of_uri": "TEXT",
+    "external_url": "TEXT", "external_title": "TEXT",
+    "author_bio": "TEXT", "author_post_count": "INTEGER DEFAULT 0",
+    "author_created_at": "TEXT", "vision_signal": "TEXT",
+}
+
+# Numeric columns default to 0 when a post dict omits them (e.g. GDELT has no engagement/media).
+_INT_DEFAULT = {"author_followers", "likes", "reposts", "replies", "quotes",
+                "has_image", "author_post_count"}
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add any post columns missing from an existing DB (idempotent)."""
+    have = {r[1] for r in conn.execute("PRAGMA table_info(posts)")}
+    for name, decl in _NEW_COLUMNS.items():
+        if name not in have:
+            conn.execute(f"ALTER TABLE posts ADD COLUMN {name} {decl}")
+
 
 def _get_conn(db_path: str) -> sqlite3.Connection:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -27,9 +61,21 @@ def _get_conn(db_path: str) -> sqlite3.Connection:
             reposts          INTEGER DEFAULT 0,
             replies          INTEGER DEFAULT 0,
             quotes           INTEGER DEFAULT 0,
-            ingested_at      TEXT
+            ingested_at      TEXT,
+            has_image        INTEGER DEFAULT 0,
+            image_url        TEXT,
+            image_alt        TEXT,
+            reshare_of_author TEXT,
+            reshare_of_uri   TEXT,
+            external_url     TEXT,
+            external_title   TEXT,
+            author_bio       TEXT,
+            author_post_count INTEGER DEFAULT 0,
+            author_created_at TEXT,
+            vision_signal    TEXT
         )
     """)
+    _migrate(conn)   # bring older DBs up to the current schema
 
     # Metadata table — key/value store for pipeline state
     # Used to track when ingestion last ran so we never ingest more
@@ -95,18 +141,16 @@ def save(posts: list[dict], db_path: str) -> int:
         return 0
 
     conn = _get_conn(db_path)  # opens (or creates) the SQLite DB
+    cols = ", ".join(POST_COLUMNS)
+    placeholders = ", ".join(f":{c}" for c in POST_COLUMNS)
+    sql = f"INSERT OR IGNORE INTO posts ({cols}) VALUES ({placeholders})"
     inserted = 0
     for p in posts:
+        # Fill any column the source didn't provide (e.g. GDELT has no media/embed fields)
+        # so the named-param insert never KeyErrors; vision_signal stays NULL until Stage 4.
+        row = {c: p.get(c, 0 if c in _INT_DEFAULT else None) for c in POST_COLUMNS}
         try:  # if a row with the same post_id already exists it skips instead of throwing error
-            conn.execute("""
-                INSERT OR IGNORE INTO posts
-                    (post_id, source, keyword, keyword_category, author, author_followers, text,
-                     created_at, likes, reposts, replies, quotes, ingested_at)
-                VALUES
-                    (:post_id, :source, :keyword, :keyword_category, :author, :author_followers, :text,
-                     :created_at, :likes, :reposts, :replies, :quotes, :ingested_at)
-            """, p)
-            # count the actual inserts
+            conn.execute(sql, row)
             inserted += conn.execute("SELECT changes()").fetchone()[0]
         except Exception as e:
             print(f"  DB insert error: {e}")

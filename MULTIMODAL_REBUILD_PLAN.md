@@ -169,7 +169,9 @@ metric comparisons are branch-vs-baseline on this same frozen set.
 
 ---
 
-## Open decisions before Phase 1
-1. **Vision model:** `qwen2.5-vl` (recommended) vs `gemma4:e4b` (module default).
-2. **Colab data transfer:** Google Drive mount (recommended) vs a temporary release asset.
-3. **Ingest volume for the test:** full sweep (real dataset) vs a capped shakeout first.
+## Decisions (locked)
+1. **Vision model:** `qwen2.5-vl` (best natural-photo + OCR mix for real-vs-cartoon).
+2. **Colab data transfer:** Google Drive mount.
+3. **Ingest volume:** **capped shakeout first** — a small run (e.g. `bluesky_limit: 15`) to prove the
+   whole Colab↔local pipeline end-to-end fast, then the full sweep once it's clean. The cap is a
+   config value, not a code change, so the shakeout and full run use identical code.

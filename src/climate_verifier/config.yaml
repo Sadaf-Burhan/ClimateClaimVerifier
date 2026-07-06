@@ -46,6 +46,15 @@ evidence:                          # Week 6 — evidence matching (GDELT news co
     - cbc.ca
     - theguardian.com
 
+vision:                            # Week 7 — GATED image modality (edge cases only, not per-post)
+  model: "qwen2.5-vl"               # natural-photo + OCR; disambiguates real-photo vs cartoon/meme
+  corrector_model: "qwen2.5:3b"     # reformats malformed vision JSON — never sees the image
+  gate_categories:                  # precision-weak zones to escalate (claim + image + no metadata support)
+    - conspiracy
+    - sensationalist
+  max_images: 50                    # cap vision calls per run (cost guard)
+  download_timeout: 20              # seconds to fetch an image before giving up
+
 evaluation:
   claim_eval_csv: data/claim_eval.csv   # hand-labeled eval set (60 posts, stratified by category + post type)
   claim_recall_target: 0.90             # success criterion — a missed claim (FN) is the costly, unrecoverable error
