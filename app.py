@@ -586,4 +586,8 @@ with tab4:
                     st.markdown(f"**Post:** {r['text']}")
                     st.markdown(f"**@{r['author']}** · {r['source']} · {r['engagement']} engagements")
                     st.caption(f"Corroboration: **{sig['verdict']}** — {sig['reason']}")
+                    if r.get("vision"):
+                        v = r["vision"]
+                        st.caption(f"🖼️ Image (edge-case vision): **{v.get('image_type')}** · "
+                                   f"depicts_claim={v.get('depicts_claim')} — {v.get('description','')}")
                     st.caption(f"Reader signal: {sig['summary']}")

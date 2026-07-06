@@ -129,6 +129,10 @@ analyzed on Colab and never leave it — only the derived `vision_signal` text i
 ## Part D — Execution sequence (back-and-forth runbook)
 
 ### Phase 1 — LOCAL (VS Code), on `multimodal-edge-gating`: implement + push code
+**Status: code complete & tested locally.** Capture is **live-validated** (real Bluesky fetch:
+images/external-links/bio/post-count all captured). Gating + reader-signal consumption unit-tested
+(real photo → precision save; cartoon/AI → flag stands). **Vision *inference* is tested on Colab**
+(its GPU home), not locally, per decision.
 1. `store.py` — add columns: `has_image, image_url, image_alt, reshare_of_author, reshare_of_uri,`
    `external_url, external_title, author_bio, author_post_count, author_created_at, vision_signal`.
 2. `bluesky.py` — parse `post.embed` (images / external / record) in BOTH the SDK and raw-HTTP paths;

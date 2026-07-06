@@ -211,13 +211,14 @@ def is_official(author: str, gdelt_domain: str, official: list[str]) -> bool:
 def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: str,
                         followers: int = 0, domain: str = "", author: str = "",
                         citations: list[dict] | None = None, official: bool = False,
-                        high_reach: int = 50) -> dict:
+                        vision: dict | None = None, high_reach: int = 50) -> dict:
     """
     Plain-language, *suggestive* reader signal from the corroboration verdict, reach,
-    source context, self-citations, and official-source status. The reach-vs-support red
-    flag is NOT raised for official sources, or for posts that cite their own credible
-    source — those are legitimate reasons a real post lacks news corroboration. Never
-    asserts truth.
+    source context, self-citations, official-source status, and (for gated edge cases) an
+    image signal. The reach-vs-support red flag is NOT raised for official sources, posts
+    citing their own credible source, or edge cases whose image is a real on-the-ground
+    photo of the event (a precision save) — those are legitimate reasons a real post lacks
+    news corroboration. A cartoon/meme/AI image instead reinforces the flag. Never asserts truth.
     """
     citations = citations or []
     verdict = corro["verdict"]
@@ -231,6 +232,10 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
     # as official even from an unverified account.
     reshared_official = any(c.get("official") for c in citations)
     treated_official = official or reshared_official
+    # Vision (edge cases only): a real on-the-ground photo of the event supports a genuine
+    # claim → precision save (clears the flag). Cartoon/meme/AI imagery does not clear it.
+    vision_supports = bool(vision and vision.get("image_type") == "real_photo"
+                           and vision.get("depicts_claim") in ("yes", "partial"))
 
     if verdict == "corroborated" and cited:
         evidence_phrase = (f"A retrieved news article appears to report this event ({cited['domain']}) — "
@@ -261,14 +266,18 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
     reach_phrase = f"Reach: {engagement:,} engagements." if engagement else "Reach: low engagement."
 
     # Red flag ONLY when the reach-vs-support mismatch is real: high reach, no corroboration,
-    # unverified social account, NOT official (directly or via reshare), and NO credible cite.
+    # unverified social account, NOT official (directly or via reshare), NO credible cite,
+    # and NOT rescued by a real on-the-ground photo of the event.
     red_flag = (engagement >= high_reach and verdict == "none"
-                and source == "bluesky" and not treated_official and not credible_cite)
+                and source == "bluesky" and not treated_official and not credible_cite
+                and not vision_supports)
 
     parts = [evidence_phrase, src_phrase]
     if cite_phrase:
         parts.append(cite_phrase)
     parts.append(reach_phrase)
+    if vision and vision.get("note"):
+        parts.append(vision["note"])
     if red_flag:
         parts.append("High reach but no corroboration in the retrieved news, from an unverified source "
                      "with no cited evidence — worth a closer look; this is the pattern of "
@@ -277,14 +286,16 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
             "proximity": retrieval["proximity"], "reason": corro.get("reason", ""),
             "cited": cited, "official": official, "self_cited": bool(citations),
             "credible_cite": credible_cite, "reshared_official": reshared_official,
-            "treated_official": treated_official}
+            "treated_official": treated_official, "vision": vision,
+            "vision_supports": vision_supports}
 
 
 def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int = 0,
                  source: str = "bluesky", followers: int = 0, domain: str = "",
-                 author: str = "", cfg: dict | None = None) -> dict:
+                 author: str = "", vision: dict | None = None, cfg: dict | None = None) -> dict:
     """Full Stage-4 assessment: retrieve → corroborate (LLM re-rank) → reader signal,
-    factoring self-citations and official-source status into the red flag."""
+    factoring self-citations, official-source status, and (edge cases) an image signal
+    into the red flag."""
     cfg = cfg or _load_cfg()
     ev = cfg.get("evidence", {})
     retrieval = store.evidence_for_claim(claim_text, k=ev.get("top_k", 5),
@@ -298,9 +309,9 @@ def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int
     official = is_official(author, domain, official_list)
     signal = build_reader_signal(retrieval, corro, engagement, source, followers=followers,
                                  domain=domain, author=author, citations=citations,
-                                 official=official, high_reach=ev.get("high_reach", 50))
+                                 official=official, vision=vision, high_reach=ev.get("high_reach", 50))
     return {"retrieval": retrieval, "corroboration": corro, "citations": citations,
-            "official": official, "signal": signal}
+            "official": official, "vision": vision, "signal": signal}
 
 
 def assess_db_claims(store: "ClimateEvidenceStore", db_path: str, limit: int = 10,
@@ -311,7 +322,7 @@ def assess_db_claims(store: "ClimateEvidenceStore", db_path: str, limit: int = 1
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
     rows = con.execute("""
-        SELECT p.text, p.source, p.author, p.author_followers,
+        SELECT p.text, p.source, p.author, p.author_followers, p.vision_signal,
                (p.likes + p.reposts + p.replies + p.quotes) AS engagement
         FROM posts p JOIN classifications c ON p.post_id = c.post_id
         WHERE c.has_claim = 1
@@ -321,9 +332,13 @@ def assess_db_claims(store: "ClimateEvidenceStore", db_path: str, limit: int = 1
     con.close()
     out = []
     for r in rows:
+        try:
+            vision = json.loads(r["vision_signal"]) if r["vision_signal"] else None
+        except Exception:
+            vision = None
         a = assess_claim(store, r["text"], engagement=r["engagement"], source=r["source"],
                          followers=r["author_followers"] or 0, author=r["author"] or "",
-                         domain=r["author"] if r["source"] == "gdelt" else "", cfg=cfg)
+                         domain=r["author"] if r["source"] == "gdelt" else "", vision=vision, cfg=cfg)
         out.append({"text": r["text"], "author": r["author"], "source": r["source"],
                     "engagement": r["engagement"], **a})
     return out
