@@ -115,19 +115,29 @@ class ClimateEvidenceStore:
 
 # Re-ranking pass (Module 6 "Advanced RAG"): dense retrieval finds topically-similar
 # news, but topical overlap is NOT corroboration. The LLM re-reads the claim against the
-# retrieved articles and judges whether any describes the SAME specific event — a
-# relevance judgment, NOT a truth verdict.
-_CORROBORATION_PROMPT = """You check whether published NEWS corroborates a claim — whether any article describes the SAME specific event, mechanism, place, or measurement the claim asserts. You are NOT judging whether the claim is true. Topical overlap (same general subject or region) is NOT corroboration.
+# retrieved articles and judges whether any describes the SAME specific event.
+# Safety guardrails baked into the prompt:
+#   - judge ONLY from the provided article titles (no outside knowledge),
+#   - NEVER decide whether the claim is true/false (that is the human reader's job),
+#   - cite the supporting article number so the reader can open and review the source,
+#   - "none" is scoped to the retrieved set — absence is not proof the event didn't happen.
+_CORROBORATION_PROMPT = """You decide whether any of the NEWS ARTICLES listed below reports the SAME specific event, mechanism, place, or measurement that a claim asserts.
+
+STRICT RULES — follow every one:
+1. Judge ONLY from the article titles listed below. Do NOT use any outside knowledge about the claim, the events, HAARP, chemtrails, the weather, or the world. If it is not in the listed titles, it does not exist for this task.
+2. Do NOT decide whether the claim is true or false — never. Your ONLY job is to report whether a listed article describes the same specific thing. Truth is judged by the human reader, not you.
+3. An article corroborates ONLY if its own title reports the same specific event/mechanism the claim asserts — not merely the same topic, region, or weather in general. When in doubt, choose the WEAKER verdict.
+4. If you answer "corroborated" or "partial" you MUST cite the exact article number whose title supports it, and your reason must name what that article reports.
 
 Claim: "{claim}"
 
-Candidate news articles:
+News articles (the ONLY evidence you may use):
 {articles}
 
-Return JSON only: {{"verdict": "corroborated" | "partial" | "none", "article": <article number, or 0>, "reason": "<under 12 words>"}}
-- corroborated: an article describes the same specific event/mechanism as the claim.
-- partial: an article covers the same topic or region but not the specific claim.
-- none: no article describes the specific event — only loose topical overlap, or nothing."""
+Return JSON only: {{"verdict": "corroborated" | "partial" | "none", "article": <the supporting article number, or 0 if none>, "reason": "<name what the cited article reports; under 15 words>"}}
+- corroborated: a listed article reports the same specific event/mechanism as the claim.
+- partial: a listed article covers the same topic or region but NOT the specific claim.
+- none: no listed article reports the specific event — only loose topical overlap, or nothing."""
 
 
 def corroboration_check(claim_text: str, matches: list[dict], model: str) -> dict:
@@ -166,14 +176,21 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
     and source context. Flags the reach-vs-support mismatch. Never asserts truth.
     """
     verdict = corro["verdict"]
-    evidence_phrase = {
-        "corroborated": "Published news corroborates this claim.",
-        "partial":      "Published news covers the topic but not this specific claim.",
-        "none":         "No published news describes this specific event.",
-    }[verdict]
+    matches = retrieval["matches"]
+    n = len(matches)
     art = corro.get("article", 0)
-    if verdict != "none" and 1 <= art <= len(retrieval["matches"]):
-        evidence_phrase += f" ({retrieval['matches'][art - 1]['domain']})"
+    # The cited article the model based its verdict on — surfaced so the reader can
+    # review the ORIGINAL source (domain + url), never taking the model's word for it.
+    cited = matches[art - 1] if verdict != "none" and 1 <= art <= n else None
+
+    if verdict == "corroborated" and cited:
+        evidence_phrase = (f"A retrieved news article appears to report this event ({cited['domain']}) — "
+                           "open the source to confirm it actually says so.")
+    elif verdict == "partial" and cited:
+        evidence_phrase = (f"Retrieved news covers the topic but not this specific claim ({cited['domain']}).")
+    else:  # none — scoped to the retrieved corpus, NOT a claim that no evidence exists anywhere
+        evidence_phrase = (f"None of the {n} retrieved news articles report this specific event. "
+                           "Absence here is not proof it did not happen — the retrieved news set is limited.")
 
     if source == "bluesky":
         src_phrase = f"Source: an unverified social account ({followers:,} followers)."
@@ -184,10 +201,10 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
     red_flag = engagement >= high_reach and verdict == "none" and source == "bluesky"
     parts = [evidence_phrase, src_phrase, reach_phrase]
     if red_flag:
-        parts.append("High reach with no news corroboration from an unverified source — "
-                     "evaluate carefully; this is the pattern of misinformation amplification.")
+        parts.append("High reach but no corroboration in the retrieved news, from an unverified source — "
+                     "worth a closer look; this is the pattern of misinformation amplification.")
     return {"summary": " ".join(parts), "red_flag": red_flag, "verdict": verdict,
-            "proximity": retrieval["proximity"], "reason": corro.get("reason", "")}
+            "proximity": retrieval["proximity"], "reason": corro.get("reason", ""), "cited": cited}
 
 
 def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int = 0,

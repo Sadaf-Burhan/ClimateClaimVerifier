@@ -544,9 +544,13 @@ with tab4:
             if sig["red_flag"]:
                 st.error("🚩 RED FLAG — high reach, no corroboration, unverified source (misinformation pattern).")
             st.caption(f"**Reader signal:** {sig['summary']}")
-            st.markdown("**Nearest news articles (retrieval):**")
+            st.markdown("**Retrieved news — open the source to verify (don't take the model's word):**")
+            cited = sig.get("cited")
             for m in a["retrieval"]["matches"]:
-                st.markdown(f"- `{m['similarity']:.3f}` · [{m['domain']}] {m['title'][:100]}")
+                mark = "  ⬅ **cited**" if cited and m["url"] == cited["url"] else ""
+                url = m["url"] if str(m["url"]).startswith("http") else ""
+                title = f"[{m['title'][:90]}]({url})" if url else m["title"][:90]
+                st.markdown(f"- `{m['similarity']:.3f}` · **{m['domain']}** · {title}{mark}")
 
     st.divider()
     st.markdown("### Scan top claims for red flags")
