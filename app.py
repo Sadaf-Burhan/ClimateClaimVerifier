@@ -508,7 +508,9 @@ with tab4:
         "(ChromaDB · all-MiniLM-L6-v2), then an LLM re-rank judges whether any article describes "
         "the *same specific event* — a **corroboration** signal, not a truth verdict. Combined with "
         "reach (engagement) it surfaces the **reach-vs-support mismatch**: a claim spreading widely "
-        "with no news backing from an unverified source is the misinformation red flag."
+        "with no news backing from an unverified source is the misinformation red flag. The flag is "
+        "**not** raised for **official sources** (legitimate warnings/forecasts) or posts that "
+        "**self-cite a credible source** — those are real reasons a genuine post lacks news corroboration."
     )
 
     @st.cache_resource
@@ -528,8 +530,11 @@ with tab4:
 
     st.divider()
     st.markdown("### Assess a claim")
-    claim_text = st.text_area("Claim text", placeholder="e.g. HAARP technology is causing the Alberta floods", height=80)
-    eng = st.number_input("Reach (engagement = likes + reposts + replies + quotes)", min_value=0, value=0, step=10)
+    claim_text = st.text_area("Claim text (include any link the post cites, e.g. a study URL)",
+                              placeholder="e.g. HAARP technology is causing the Alberta floods", height=80)
+    ec1, ec2 = st.columns(2)
+    eng = ec1.number_input("Reach (engagement = likes + reposts + replies + quotes)", min_value=0, value=0, step=10)
+    author = ec2.text_input("Author handle (optional — e.g. nws.noaa.gov to test official sources)", value="")
     if st.button("Assess against news evidence", type="primary"):
         if not claim_text.strip():
             st.warning("Enter a claim.")
@@ -537,12 +542,18 @@ with tab4:
             st.warning("Build the evidence index first.")
         else:
             with st.spinner("Retrieving news + checking corroboration..."):
-                a = assess_claim(store, claim_text, engagement=int(eng), source="bluesky", cfg=cfg)
+                a = assess_claim(store, claim_text, engagement=int(eng), source="bluesky",
+                                 author=author.strip(), cfg=cfg)
             corro, sig = a["corroboration"], a["signal"]
             {"corroborated": st.success, "partial": st.warning, "none": st.error}[corro["verdict"]](
                 f"**{corro['verdict'].upper()}** — {corro['reason']}")
             if sig["red_flag"]:
-                st.error("🚩 RED FLAG — high reach, no corroboration, unverified source (misinformation pattern).")
+                st.error("🚩 RED FLAG — high reach, no corroboration, unverified source, no cited evidence "
+                         "(misinformation pattern).")
+            elif a["official"]:
+                st.info("✓ Official source — legitimate warnings/forecasts aren't flagged even without news corroboration.")
+            elif sig.get("credible_cite"):
+                st.info("✓ Post self-cites a credible source — it supplies its own evidence for you to review.")
             st.caption(f"**Reader signal:** {sig['summary']}")
             st.markdown("**Retrieved news — open the source to verify (don't take the model's word):**")
             cited = sig.get("cited")
@@ -564,7 +575,8 @@ with tab4:
                 results = assess_db_claims(store, DB_PATH, limit=n_scan, cfg=cfg)
             flags = [r for r in results if r["signal"]["red_flag"]]
             st.write(f"**{len(flags)} red-flag claims** of {len(results)} scanned "
-                     "(high reach + no corroboration + unverified source).")
+                     "(high reach + no corroboration + unverified source + no cited evidence; "
+                     "official sources and self-cited claims are excluded).")
             for r in results:
                 sig = r["signal"]
                 icon = "🚩" if sig["red_flag"] else ("✅" if sig["verdict"] == "corroborated" else "•")

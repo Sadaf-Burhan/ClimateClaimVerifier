@@ -165,6 +165,8 @@ Asking those questions would be the category error this project is specifically 
 
 A claim spreading widely (high engagement) with **no** news corroboration **and** from an unverified source is the misinformation red flag — **high reach, low support.** The reader summary names exactly that combination ("spreading fast; no published news covers it; unverified account") so a reader can weigh it — without the system ever claiming the post is false. This is the core value of the scanner: not a verdict, but making the *mismatch between how far a claim travels and how well it's supported* legible.
 
+Because "no news match" has legitimate causes, the flag applies **two guards**: it is not raised when the post **self-cites a credible source** (it supplies its own evidence — the linked domain is surfaced for the reader) or comes from an **allowlisted official source** (warnings/forecasts describe future events news can't corroborate yet). Both lists live in `config.yaml` (`evidence.citation_domains`, `evidence.official_sources`) and match conservatively so an "altgov" lookalike doesn't pass as a real agency. Neither reintroduces a credibility *score* — they only suppress a false flag. *(Week 7 adds a third signal: a multimodal check on attached images — a real field photo vs. a cartoon/synthetic image.)*
+
 ---
 
 ## How Success Is Measured

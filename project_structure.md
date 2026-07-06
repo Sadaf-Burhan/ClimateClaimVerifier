@@ -164,8 +164,17 @@ excluding any post flagged `in_eval_set`/`in_train_set`. For each classified cla
    dense similarity alone scores a conspiracy claim high just for sharing a topic (Module 6's
    re-ranking lesson). **A relevance judgment, never a truth verdict.**
 3. **Reader signal** (`build_reader_signal`) — a plain-language, *suggestive* summary plus the
-   **reach-vs-support red flag**: high engagement + no corroboration + unverified source =
-   misinformation amplification pattern. The system never says "false".
+   **reach-vs-support red flag**: high engagement + no corroboration + unverified source +
+   no cited evidence = misinformation amplification pattern. The system never says "false".
+
+The red flag has **two guards** so legitimate posts aren't flagged just for lacking a GDELT match:
+- **Self-citation** (`extract_citations`) — if the post links its own credible source (a
+  study/journal/news domain in `evidence.citation_domains`), it supplies its own evidence and
+  isn't flagged. The linked domain is surfaced for the reader; the system doesn't vouch for it.
+- **Official source** (`is_official`) — an allowlisted agency handle/domain
+  (`evidence.official_sources`) posting a warning/forecast isn't flagged (news can't corroborate a
+  *future* event). Matched conservatively by exact-or-dotted-suffix, so an "altgov" lookalike
+  (`altcdc.altgov.info`) does **not** pass as `nws.noaa.gov`.
 
 `assess_claim` runs all three; `assess_db_claims` assesses the top-engagement claims. Build the
 index: `uv run python -m climate_verifier.pipeline.evidence --build`.
@@ -198,6 +207,8 @@ evidence:                                 # Week 6 — GDELT evidence matching
   high_proximity: 0.60                    # retrieval tier thresholds
   low_proximity: 0.40
   high_reach: 50                          # engagement >= this = "high reach" for the red flag
+  official_sources: [noaa.gov, weather.gov, weather.gc.ca, ...]   # allowlist — not flagged
+  citation_domains: [gov, edu, sciencedaily.com, nature.com, ...] # credible self-cite → not flagged
 evaluation:
   claim_eval_csv: data/claim_eval.csv
   claim_recall_target: 0.90
@@ -215,6 +226,22 @@ uv sync                                              # install deps
 ollama serve && ollama pull qwen2.5:3b               # classifier model
 uv run python -m climate_verifier.ingestion.scheduler  # ingest (24h guard)
 uv run python -m climate_verifier.pipeline.evaluate    # evaluate the classifier
-uv run streamlit run app.py                          # dashboard (3 tabs)
+uv run streamlit run app.py                          # dashboard (4 tabs)
 ```
 The Base-vs-Adapter tab needs the LoRA registered in Ollama — see `models/README.md`.
+
+---
+
+## Week 7 — Next Steps (Multimodality)
+
+Testing the top-claims scan surfaced a class of posts the text-only pipeline can't resolve: a
+first-person field observation with a **photo** (e.g. *"this deep sinkhole appeared at our field
+site — abrupt permafrost thaw"*). No news corroborates it and the account is unverified, so the
+current red flag fires — but the attached image is exactly the evidence a reader would weigh.
+
+**Planned (Week 7 — multimodal models):** add an image signal to Stage 4/5. A multimodal model
+inspects any attached media and contributes a descriptive signal — e.g. *a genuine on-the-ground
+photo* supports a first-hand observation, whereas *a cartoon / meme / obviously synthetic image*
+is a fabrication cue. Consistent with the reader-signal design: the image is **another signal for
+the reader**, never an automated truth verdict. This folds into the same red-flag guard logic
+(self-citation and official source already added in Week 6) as a third legitimate-context signal.

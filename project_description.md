@@ -114,12 +114,15 @@ Social Media Posts (Bluesky + GDELT)
   [5] SIGNAL ASSEMBLY          — no LLM
       Per claim: claim + reason, evidence proximity + matched articles,
       source context (domain / account type / followers),
+      self-citation (does the post link its own credible source?),
+      official-source status (allowlisted agency handle/domain?),
       engagement / reach (likes, reposts, replies, quotes)
            │
            ▼
   [6] READER SUMMARY           — suggestive, never a verdict
       Plain-language description of the signals; flags the red flag:
-      high reach + low support (no corroboration, unverified source)
+      high reach + low support (no corroboration, unverified source,
+      NO cited evidence) — NOT raised for official sources or self-cited claims
            │
            ▼
   [7] DASHBOARD                — Streamlit
@@ -141,6 +144,13 @@ Social Media Posts (Bluesky + GDELT)
 **The final truth judgment is never made by the system.** It equips a reader with structured signals — claim detected, semantic proximity to published news, source context (domain / account type / followers), and engagement/reach (likes, reposts, replies, quotes) — plus a plain-language summary. The reader draws the conclusion. There is **no numeric credibility score and no HIGH/MEDIUM/LOW verdict**; an early design had one and it was deliberately removed, because an LLM cannot verify facts (see "What This System Does NOT Do").
 
 **The headline signal is reach vs. support.** A claim spreading widely (high engagement) with no news corroboration and from an unverified source is the misinformation red flag — **high reach, low support.** The reader summary names that combination explicitly, making the mismatch between how far a claim travels and how well it is supported legible — without the system ever asserting the post is false.
+
+**But "no news corroboration" alone is not enough to flag a post** — there are legitimate reasons a genuine claim has no GDELT match, so the red flag applies two guards:
+
+- **Self-citation.** If the post links its own credible source (a study/journal/news domain — e.g. a `sciencedaily.com` study), it *supplies its own evidence* for the reader to review. That is the opposite of the "no support at all" pattern, so it is not flagged. The linked domain is surfaced (credible or not) for the reader to judge — the system does not vouch for it.
+- **Official sources.** Official warnings and forecasts (e.g. a National Weather Service hurricane advisory) describe *future* events that news cannot corroborate yet — a missing news match is expected, not suspicious. Posts from an allowlisted official handle/domain are not flagged. The allowlist is a small, curated set of genuine agencies (`config.yaml → evidence.official_sources`) matched conservatively by exact-or-dotted-suffix, so an "altgov" lookalike (`altcdc.altgov.info`) does **not** pass as the real `nws.noaa.gov`.
+
+Both lists live in config and are extensible. Neither reintroduces a hardcoded credibility *score*: self-citations are surfaced for the reader (not trusted blindly), and the official allowlist only *suppresses a false flag* — it never asserts a claim is true.
 
 ---
 

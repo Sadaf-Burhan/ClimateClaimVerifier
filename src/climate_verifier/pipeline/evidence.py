@@ -169,58 +169,115 @@ def corroboration_check(claim_text: str, matches: list[dict], model: str) -> dic
         return {"verdict": "none", "article": 0, "reason": f"check error: {e}"}
 
 
+_URL_RE = re.compile(r"https?://[^\s)\]>]+|www\.[^\s)\]>]+", re.I)
+
+
+def extract_citations(text: str, credible_domains: list[str]) -> list[dict]:
+    """Links the post cites itself -> [{url, domain, credible}]. A self-citation means the
+    post supplies its own evidence (which the reader can review) — the opposite of the
+    'no support at all' misinformation pattern (e.g. a post linking a sciencedaily study)."""
+    cites = []
+    for raw in _URL_RE.findall(text or ""):
+        url = raw.rstrip(".,);]")
+        dom = re.sub(r"^https?://", "", url, flags=re.I).split("/")[0].lower()
+        dom = dom[4:] if dom.startswith("www.") else dom
+        credible = any(dom == d or dom.endswith("." + d) for d in credible_domains)
+        cites.append({"url": url, "domain": dom, "credible": credible})
+    return cites
+
+
+def is_official(author: str, gdelt_domain: str, official: list[str]) -> bool:
+    """Conservative allowlist match — exact or dotted-suffix on the handle/domain, so an
+    'altgov' lookalike (altcdc.altgov.info) does NOT match a real agency (nws.noaa.gov)."""
+    for c in ((author or "").lower(), (gdelt_domain or "").lower()):
+        if not c:
+            continue
+        for o in (x.lower() for x in official):
+            if c == o or c.endswith("." + o):
+                return True
+    return False
+
+
 def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: str,
-                        followers: int = 0, domain: str = "", high_reach: int = 50) -> dict:
+                        followers: int = 0, domain: str = "", author: str = "",
+                        citations: list[dict] | None = None, official: bool = False,
+                        high_reach: int = 50) -> dict:
     """
     Plain-language, *suggestive* reader signal from the corroboration verdict, reach,
-    and source context. Flags the reach-vs-support mismatch. Never asserts truth.
+    source context, self-citations, and official-source status. The reach-vs-support red
+    flag is NOT raised for official sources, or for posts that cite their own credible
+    source — those are legitimate reasons a real post lacks news corroboration. Never
+    asserts truth.
     """
+    citations = citations or []
     verdict = corro["verdict"]
     matches = retrieval["matches"]
     n = len(matches)
     art = corro.get("article", 0)
-    # The cited article the model based its verdict on — surfaced so the reader can
-    # review the ORIGINAL source (domain + url), never taking the model's word for it.
     cited = matches[art - 1] if verdict != "none" and 1 <= art <= n else None
+    credible_cite = any(c["credible"] for c in citations)
 
     if verdict == "corroborated" and cited:
         evidence_phrase = (f"A retrieved news article appears to report this event ({cited['domain']}) — "
                            "open the source to confirm it actually says so.")
     elif verdict == "partial" and cited:
-        evidence_phrase = (f"Retrieved news covers the topic but not this specific claim ({cited['domain']}).")
-    else:  # none — scoped to the retrieved corpus, NOT a claim that no evidence exists anywhere
+        evidence_phrase = f"Retrieved news covers the topic but not this specific claim ({cited['domain']})."
+    else:
         evidence_phrase = (f"None of the {n} retrieved news articles report this specific event. "
                            "Absence here is not proof it did not happen — the retrieved news set is limited.")
 
-    if source == "bluesky":
+    if official:
+        src_phrase = f"Source: a verified official source ({author or domain})."
+    elif source == "bluesky":
         src_phrase = f"Source: an unverified social account ({followers:,} followers)."
     else:
         src_phrase = f"Source: news domain {domain}." if domain else "Source: a news article."
+
+    cite_phrase = ""
+    if citations:
+        doms = ", ".join(sorted({c["domain"] for c in citations}))
+        cite_phrase = ("The post cites its own source (" + doms + ") — "
+                       + ("a credible domain; review it." if credible_cite else "review the linked source."))
+
     reach_phrase = f"Reach: {engagement:,} engagements." if engagement else "Reach: low engagement."
 
-    red_flag = engagement >= high_reach and verdict == "none" and source == "bluesky"
-    parts = [evidence_phrase, src_phrase, reach_phrase]
+    # Red flag ONLY when the reach-vs-support mismatch is real: high reach, no corroboration,
+    # unverified social account, NOT official, and NO credible self-citation.
+    red_flag = (engagement >= high_reach and verdict == "none"
+                and source == "bluesky" and not official and not credible_cite)
+
+    parts = [evidence_phrase, src_phrase]
+    if cite_phrase:
+        parts.append(cite_phrase)
+    parts.append(reach_phrase)
     if red_flag:
-        parts.append("High reach but no corroboration in the retrieved news, from an unverified source — "
-                     "worth a closer look; this is the pattern of misinformation amplification.")
+        parts.append("High reach but no corroboration in the retrieved news, from an unverified source "
+                     "with no cited evidence — worth a closer look; this is the pattern of "
+                     "misinformation amplification.")
     return {"summary": " ".join(parts), "red_flag": red_flag, "verdict": verdict,
-            "proximity": retrieval["proximity"], "reason": corro.get("reason", ""), "cited": cited}
+            "proximity": retrieval["proximity"], "reason": corro.get("reason", ""),
+            "cited": cited, "official": official, "self_cited": bool(citations),
+            "credible_cite": credible_cite}
 
 
 def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int = 0,
                  source: str = "bluesky", followers: int = 0, domain: str = "",
-                 cfg: dict | None = None) -> dict:
-    """Full Stage-4 assessment: retrieve → corroborate (LLM re-rank) → reader signal."""
+                 author: str = "", cfg: dict | None = None) -> dict:
+    """Full Stage-4 assessment: retrieve → corroborate (LLM re-rank) → reader signal,
+    factoring self-citations and official-source status into the red flag."""
     cfg = cfg or _load_cfg()
     ev = cfg.get("evidence", {})
     retrieval = store.evidence_for_claim(claim_text, k=ev.get("top_k", 5),
                                          high=ev.get("high_proximity", 0.60),
                                          low=ev.get("low_proximity", 0.40))
     corro = corroboration_check(claim_text, retrieval["matches"], model=cfg["model"]["name"])
-    signal = build_reader_signal(retrieval, corro, engagement, source,
-                                 followers=followers, domain=domain,
-                                 high_reach=ev.get("high_reach", 50))
-    return {"retrieval": retrieval, "corroboration": corro, "signal": signal}
+    citations = extract_citations(claim_text, ev.get("citation_domains", []))
+    official = is_official(author, domain, ev.get("official_sources", []))
+    signal = build_reader_signal(retrieval, corro, engagement, source, followers=followers,
+                                 domain=domain, author=author, citations=citations,
+                                 official=official, high_reach=ev.get("high_reach", 50))
+    return {"retrieval": retrieval, "corroboration": corro, "citations": citations,
+            "official": official, "signal": signal}
 
 
 def assess_db_claims(store: "ClimateEvidenceStore", db_path: str, limit: int = 10,
@@ -242,7 +299,7 @@ def assess_db_claims(store: "ClimateEvidenceStore", db_path: str, limit: int = 1
     out = []
     for r in rows:
         a = assess_claim(store, r["text"], engagement=r["engagement"], source=r["source"],
-                         followers=r["author_followers"] or 0,
+                         followers=r["author_followers"] or 0, author=r["author"] or "",
                          domain=r["author"] if r["source"] == "gdelt" else "", cfg=cfg)
         out.append({"text": r["text"], "author": r["author"], "source": r["source"],
                     "engagement": r["engagement"], **a})

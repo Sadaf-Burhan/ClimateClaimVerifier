@@ -17,6 +17,35 @@ evidence:                          # Week 6 — evidence matching (GDELT news co
   low_proximity: 0.40                 # <  : no corroboration                       (NONE)
   high_reach: 50                      # engagement >= this counts as "high reach" for the red flag
 
+  # A post is NOT red-flagged if it comes from an official source (official warnings /
+  # forecasts are legitimate and have no news corroboration yet). Conservative suffix
+  # match on the account handle / news domain — an "altgov" lookalike must NOT match.
+  official_sources:
+    - noaa.gov
+    - weather.gov
+    - weather.gc.ca
+    - canada.ca
+    - ec.gc.ca
+    - nasa.gov
+    - ipcc.ch
+
+  # A post is NOT red-flagged if it self-cites a credible source (a study/journal/news
+  # link in the post text) — it provides its own evidence for the reader to review.
+  citation_domains:
+    - gov
+    - edu
+    - sciencedaily.com
+    - nature.com
+    - science.org
+    - pnas.org
+    - agu.org
+    - reuters.com
+    - apnews.com
+    - bbc.com
+    - bbc.co.uk
+    - cbc.ca
+    - theguardian.com
+
 evaluation:
   claim_eval_csv: data/claim_eval.csv   # hand-labeled eval set (60 posts, stratified by category + post type)
   claim_recall_target: 0.90             # success criterion — a missed claim (FN) is the costly, unrecoverable error
