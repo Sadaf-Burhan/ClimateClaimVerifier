@@ -111,7 +111,8 @@ decision. This *extends* the frozen `claim_eval.csv` discipline; it does not alt
 
 | Stage | Where | Why |
 |---|---|---|
-| Ingestion (Bluesky + GDELT) | **Colab** | Co-locate so the produced DB has all fields before export; API-bound (no GPU need, but keeps data-gathering in one place) |
+| Bluesky ingest (claims) | **Colab** | Fast, not rate-limited; co-located with the GPU work |
+| GDELT ingest (corroboration corpus) | **Local (home IP)** | GDELT's API throttles/times-out on Colab's shared IP; runs fine locally. Merges into the same `posts` table. `run_ingestion_cycle(sources=["gdelt"], force=True)` |
 | Topic filter + classification (`qwen2.5:3b`, batch=1, ~thousands of posts) | **Colab GPU** | The CPU bottleneck (multi-hour locally) → minutes on GPU |
 | Edge-gating + vision (`qwen2.5-vl`) | **Colab GPU** | Vision model needs GPU; runs on the gated subset only |
 | Export DB → Drive | **Colab** | `ingested.db` is the single artifact that crosses over |
@@ -147,13 +148,16 @@ images/external-links/bio/post-count all captured). Gating + reader-signal consu
 - **C1** Clone repo w/ PAT → `git checkout multimodal-edge-gating`.
 - **C2** Install deps; start Ollama; `ollama pull qwen2.5:3b` + the vision model.
 - **C3** Provide creds: upload `.env` (Bluesky) or Colab secrets. *(Use the rotated app password.)*
-- **C4** Ingest: `python -m climate_verifier.ingestion.scheduler` → new `data/ingested.db` (all fields).
+- **C4** Ingest **Bluesky only**: `run_ingestion_cycle(sources=["bluesky"])` → new `data/ingested.db`
+  (all new fields). GDELT is skipped here (throttled on Colab) and added locally in Phase 3.
 - **C5** Classify: `python -m climate_verifier.pipeline.claim_classifier` (batch=1).
 - **C6** Gate + vision: `python -m climate_verifier.pipeline.vision --gate-and-analyze`.
 - **C7** Export: copy `data/ingested.db` → Google Drive.
 
 ### Phase 3 — LOCAL (VS Code, CPU): validate + decide
 - **L1** Pull `ingested.db` from Drive into `data/` (backup already preserves the old one).
+- **L1b** GDELT ingest (home IP): `uv run python -c "from climate_verifier.ingestion.scheduler import run_ingestion_cycle; run_ingestion_cycle(sources=['gdelt'], force=True)"`
+  → adds the corroboration corpus to the same DB. (Or reuse the existing corpus from the backup if fresh news isn't needed.)
 - **L2** Re-flag: match `claim_eval.csv` texts → set `in_eval_set` (in_train_set optional).
 - **L3** Evaluate: `python -m climate_verifier.pipeline.evaluate` → recall/precision. Compare to baseline.
 - **L4** Build index: `python -m climate_verifier.pipeline.evidence --build`.
