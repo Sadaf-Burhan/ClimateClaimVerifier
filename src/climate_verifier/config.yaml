@@ -28,6 +28,10 @@ evidence:                          # Week 6 — evidence matching (GDELT news co
     - ec.gc.ca
     - nasa.gov
     - ipcc.ch
+    # NWS/weather relay bots — legitimate warning feeds (domain-controlled, so the suffix
+    # match only catches the real owner's accounts, e.g. pit.nws-bot.us, ctp.weather.im).
+    - nws-bot.us
+    - weather.im
 
   # A post is NOT red-flagged if it self-cites a credible source (a study/journal/news
   # link in the post text) — it provides its own evidence for the reader to review.
