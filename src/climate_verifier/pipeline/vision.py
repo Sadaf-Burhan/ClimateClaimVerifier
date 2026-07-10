@@ -15,6 +15,8 @@ is told to describe only what is visible and NOT to judge the claim true or fals
 """
 
 import argparse
+import base64
+import io
 import json
 import re
 import sqlite3
@@ -23,6 +25,7 @@ from pathlib import Path
 import ollama
 import requests
 import yaml
+from PIL import Image
 
 from .evidence import extract_citations, is_official   # reuse the metadata guards
 
@@ -89,17 +92,32 @@ def normalize(out: dict | None) -> dict | None:
     }
 
 
-def analyze_image(image_url: str, claim: str, model: str, corrector: str, timeout: int = 20) -> dict | None:
-    """Download the image and run the vision model -> normalized signal dict, or None on failure."""
+def _fetch_jpeg(image_url: str, timeout: int) -> bytes | None:
+    """Download an image and re-encode to JPEG. Bluesky's CDN serves WebP, which Ollama's
+    image loader (stb_image) cannot decode — feeding it raw WebP silently yields a blank
+    image and a canned description. Converting to JPEG is what makes the model actually see
+    the picture. A browser User-Agent avoids the CDN rejecting the default one."""
     try:
-        r = requests.get(image_url, timeout=timeout)
+        r = requests.get(image_url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
         r.raise_for_status()
-        img = r.content
+        if not r.headers.get("content-type", "").startswith("image/") or len(r.content) < 500:
+            return None
+        buf = io.BytesIO()
+        Image.open(io.BytesIO(r.content)).convert("RGB").save(buf, format="JPEG")
+        return buf.getvalue()
     except Exception:
         return None
+
+
+def analyze_image(image_url: str, claim: str, model: str, corrector: str, timeout: int = 20) -> dict | None:
+    """Download + re-encode the image and run the vision model -> normalized signal dict, or None."""
+    img = _fetch_jpeg(image_url, timeout)
+    if img is None:
+        return None
     try:
+        b64 = base64.b64encode(img).decode()
         resp = ollama.chat(model=model, options={"temperature": 0}, messages=[{
-            "role": "user", "content": _VISION_PROMPT.format(claim=(claim or "")[:400]), "images": [img]}])
+            "role": "user", "content": _VISION_PROMPT.format(claim=(claim or "")[:400]), "images": [b64]}])
         content = resp["message"]["content"]
         return normalize(_parse_json(content) or _correct(content, corrector))
     except Exception:
