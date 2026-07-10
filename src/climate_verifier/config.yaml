@@ -49,10 +49,10 @@ evidence:                          # Week 6 — evidence matching (GDELT news co
 vision:                            # Week 7 — GATED image modality (edge cases only, not per-post)
   model: "qwen2.5vl:7b"             # Ollama tag; natural-photo + OCR; real-photo vs cartoon/meme
   corrector_model: "qwen2.5:3b"     # reformats malformed vision JSON — never sees the image
-  gate_categories:                  # precision-weak zones to escalate (claim + image + no metadata support)
-    - conspiracy
-    - sensationalist
-  max_images: 50                    # cap vision calls per run (cost guard)
+  gate_categories: []               # empty = ALL categories. A misclassification can occur in any
+                                    #   topic, so vision escalates any text-uncertain image-claim,
+                                    #   not a category. (List categories here to re-narrow if needed.)
+  max_images: 200                   # cap vision calls per run (cost guard; raised — more posts qualify)
   download_timeout: 20              # seconds to fetch an image before giving up
 
 evaluation:

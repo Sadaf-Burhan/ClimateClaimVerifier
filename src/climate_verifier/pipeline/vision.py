@@ -143,23 +143,26 @@ def vision_reader_note(vs: dict | None) -> str:
 
 def gate_edge_cases(db_path: str, cfg: dict, limit: int | None = None) -> list[dict]:
     """
-    Select edge-case posts to escalate to vision: a claim, with an image, in a
-    precision-weak category, NOT already resolved by metadata (official author /
-    credible link / reshare-of-official). Highest reach first, capped.
+    Select posts to escalate to vision: a claim, with an image, NOT already resolved by
+    metadata (official author / credible link / reshare-of-official). A text
+    misclassification (the precision problem) can occur in ANY category, so the gate is
+    NOT category-restricted — the image is escalated wherever text alone was uncertain and
+    a picture could correct it. `vision.gate_categories` may still narrow it (empty = all).
+    Highest reach first, capped.
     """
     ev, vz = cfg.get("evidence", {}), cfg.get("vision", {})
     official = ev.get("official_sources", [])
-    cats = vz.get("gate_categories", ["conspiracy", "sensationalist"])
+    cats = vz.get("gate_categories") or []                      # empty/None => all categories
+    cat_clause = f"AND p.keyword_category IN ({','.join('?' * len(cats))})" if cats else ""
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
-    qmarks = ",".join("?" * len(cats))
     rows = con.execute(f"""
         SELECT p.post_id, p.text, p.author, p.image_url, p.keyword_category,
                p.reshare_of_author, p.external_url,
                (p.likes + p.reposts + p.replies + p.quotes) AS engagement
         FROM posts p JOIN classifications c ON p.post_id = c.post_id
         WHERE p.has_image = 1 AND c.has_claim = 1 AND p.source = 'bluesky'
-              AND p.keyword_category IN ({qmarks})
+              {cat_clause}
               AND (p.vision_signal IS NULL OR p.vision_signal = '')
         ORDER BY engagement DESC
     """, cats).fetchall()
