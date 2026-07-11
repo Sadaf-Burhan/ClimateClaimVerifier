@@ -336,47 +336,50 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def get_top_claims(db_path: str, limit: int = 10) -> list[dict]:
-    """
-    Returns top N classified claims, ranked by total engagement
-    (likes + reposts + replies + quotes).
-    """
+# Ranking criteria for the top-posts views (engagement / followers / recency).
+_TOP_SORT = {"engagement": "engagement DESC",
+             "followers": "p.author_followers DESC",
+             "recent": "p.created_at DESC"}
+
+
+def get_top_claims(db_path: str, limit: int = 10, sort_by: str = "engagement") -> list[dict]:
+    """Top N classified claims, ranked by the chosen criterion (engagement / followers / recent).
+    Includes post_id so the dashboard can link to the original Bluesky post."""
+    order = _TOP_SORT.get(sort_by, _TOP_SORT["engagement"])
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     _ensure_tables(conn)
-    rows = conn.execute("""
-        SELECT p.text, p.author, p.source, p.keyword, p.keyword_category,
+    rows = conn.execute(f"""
+        SELECT p.post_id, p.text, p.author, p.source, p.keyword, p.keyword_category,
                p.likes, p.reposts, p.replies, p.quotes, p.author_followers,
                p.created_at, c.reason,
                (p.likes + p.reposts + p.replies + p.quotes) AS engagement
         FROM posts p
         JOIN classifications c ON p.post_id = c.post_id
         WHERE c.has_claim = 1
-        ORDER BY engagement DESC
+        ORDER BY {order}
         LIMIT ?
     """, (limit,)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def get_top_opinions(db_path: str, limit: int = 10) -> list[dict]:
-    """
-    Returns top N rejected (opinion) posts, ranked by engagement.
-    High-engagement opinions are worth showing — they spread even though
-    they contain no verifiable claim.
-    """
+def get_top_opinions(db_path: str, limit: int = 10, sort_by: str = "engagement") -> list[dict]:
+    """Top N rejected (opinion) posts, ranked by the chosen criterion. High-engagement opinions
+    are worth showing — they spread even though they contain no verifiable claim. Includes post_id."""
+    order = _TOP_SORT.get(sort_by, _TOP_SORT["engagement"])
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     _ensure_tables(conn)
-    rows = conn.execute("""
-        SELECT p.text, p.author, p.source, p.keyword_category,
+    rows = conn.execute(f"""
+        SELECT p.post_id, p.text, p.author, p.source, p.keyword_category,
                p.likes, p.reposts, p.replies, p.quotes, p.author_followers,
                p.created_at, c.reason,
                (p.likes + p.reposts + p.replies + p.quotes) AS engagement
         FROM posts p
         JOIN classifications c ON p.post_id = c.post_id
         WHERE c.has_claim = 0
-        ORDER BY engagement DESC
+        ORDER BY {order}
         LIMIT ?
     """, (limit,)).fetchall()
     conn.close()

@@ -61,17 +61,24 @@ def _trust_store():
     return get_store()
 
 
-def _load_posts(db_path: str, has_claim: int, limit: int = 25) -> list[dict]:
-    """Top classified Bluesky posts (claims or opinions) by engagement, with the fields
-    the trust panel needs (incl. any stored vision signal)."""
+_SORT_SQL = {"engagement": "engagement DESC",
+             "followers": "p.author_followers DESC",
+             "recent": "p.created_at DESC"}
+_SORT_LABEL = {"engagement": "Most engagement", "followers": "Most followers", "recent": "Most recent"}
+
+
+def _load_posts(db_path: str, has_claim: int, limit: int = 25, sort_by: str = "engagement") -> list[dict]:
+    """Top classified Bluesky posts (claims or opinions), ranked by the chosen criterion, with the
+    fields the trust panel needs (incl. post_id for the Bluesky link and any stored vision signal)."""
+    order = _SORT_SQL.get(sort_by, _SORT_SQL["engagement"])
     con = sqlite3.connect(db_path); con.row_factory = sqlite3.Row
-    rows = con.execute("""
+    rows = con.execute(f"""
         SELECT p.post_id, p.text, p.author, p.author_followers, p.vision_signal,
-               p.keyword_category, c.reason,
+               p.keyword_category, p.created_at, c.reason,
                (p.likes + p.reposts + p.replies + p.quotes) AS engagement
         FROM posts p JOIN classifications c ON p.post_id = c.post_id
         WHERE c.has_claim = ? AND p.source = 'bluesky'
-        ORDER BY engagement DESC LIMIT ?
+        ORDER BY {order} LIMIT ?
     """, (has_claim, limit)).fetchall()
     con.close()
     return [dict(r) for r in rows]
@@ -163,38 +170,33 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("🌪️ Climate Claim Scanner")
-st.caption("NA Extreme Weather · Week 1: LLM Classification · Week 2: Embedding Analysis")
-
-# ── Tabs ──────────────────────────────────────────────────────────────────────
-tab_trust, tab1, tab2, tab4, tab3 = st.tabs([
-    "🛡️ Trust Checker",
-    "🔍 Claim Classifier  (Week 1)",
-    "🧬 Embedding Analysis  (Week 2)",
-    "🔎 Evidence Matching  (Week 6)",
-    "🧪 Base vs Adapter  (Week 5)",
-])
-
 # ═══════════════════════════════════════════════════════════════════════════════
-# TRUST CHECKER — the user-facing product: check a Bluesky post, get the signals
+# SCANNER — Trust Checker: the user-facing product (check a Bluesky post, get signals)
 # ═══════════════════════════════════════════════════════════════════════════════
-with tab_trust:
+def trust_checker():
     st.subheader("🛡️ Climate Claim Scanner — Trust Checker")
-    st.info(
-        "**What this is** — a *scanner* for **Bluesky** climate & extreme-weather posts. It surfaces "
-        "signals to help *you* judge a post: is it a checkable **claim** or an **opinion**? does published "
-        "news cover it? who posted it, with what reach and sources?\n\n"
-        "**What it is NOT** — it does **not** decide whether a post is true or false; that's a verdict it "
-        "can't make. It gives you the signals — **you** draw the conclusion. It works on **Bluesky posts "
-        "only** (paste a Bluesky post; it can't scan Facebook, X, or other platforms)."
+    st.markdown(
+        "**What this does**\n"
+        "- Scans **Bluesky** posts about climate & extreme weather.\n"
+        "- Tells you whether a post is a checkable **claim** or just an **opinion**.\n"
+        "- Checks whether **published news** reports the same event — and shows you those sources.\n"
+        "- Flags the **reach-vs-support mismatch**: a post spreading fast with no news backing.\n\n"
+        "**What this does NOT do**\n"
+        "- It does **not** decide whether a post is true or false — *you* judge, using the signals.\n"
+        "- It works on **Bluesky posts only** (not Facebook, X, or other platforms)."
     )
+    with st.expander("🚩 How to read a red-flagged post — before you trust or share", expanded=True):
+        st.markdown(_MISINFO_TIPS)
 
     store = _trust_store()
     if store.count() == 0:
-        st.warning("Evidence index is empty — build it in the 🔎 Evidence Matching tab first.")
+        st.warning("Evidence index is empty — build it on the **Evidence Matching (RAG)** page "
+                   "(sidebar → Course demos).")
     else:
-        claims = _load_posts(DB_PATH, 1, 25)
-        opinions = _load_posts(DB_PATH, 0, 25)
+        sort_by = st.selectbox("Rank the day's top posts by", list(_SORT_LABEL),
+                               format_func=lambda s: _SORT_LABEL[s], key="tc_sort")
+        claims = _load_posts(DB_PATH, 1, 25, sort_by)
+        opinions = _load_posts(DB_PATH, 0, 25, sort_by)
 
         c1, c2 = st.columns(2)
         with c1:
@@ -252,13 +254,10 @@ with tab_trust:
         else:
             st.caption("Pick a claim or opinion above, or paste a new Bluesky post, then check it.")
 
-        with st.expander("ℹ️ How to spot misinformation wording"):
-            st.markdown(_MISINFO_TIPS)
-
 # ═══════════════════════════════════════════════════════════════════════════════
-# TAB 1 — CLAIM CLASSIFIER
+# CLASSIFICATION EVALUATION (course demo)
 # ═══════════════════════════════════════════════════════════════════════════════
-with tab1:
+def classification_eval():
 
     # Ingestion status bar
     last_ingest = get_last_ingestion_time(DB_PATH)
@@ -349,13 +348,14 @@ with tab1:
 
     st.divider()
 
-    # Results tables
+    # Results tables — top claims vs opinions, with a rank criterion + link to the original post
+    st.subheader("🏆 Top posts")
+    ce_sort = st.selectbox("Rank by", list(_SORT_LABEL), format_func=lambda s: _SORT_LABEL[s], key="ce_sort")
     left, right = st.columns(2)
 
     with left:
-        st.subheader("✅ Top 10 Claims")
-        st.caption("Ranked by total engagement (likes + reposts + replies + quotes)")
-        claims = get_top_claims(DB_PATH, limit=10)
+        st.markdown(f"**✅ Top 10 Claims**  ·  {_SORT_LABEL[ce_sort].lower()}")
+        claims = get_top_claims(DB_PATH, limit=10, sort_by=ce_sort)
         if not claims:
             st.info("No claims classified yet.")
         else:
@@ -363,14 +363,16 @@ with tab1:
                 with st.expander(f"#{i} · {c['source'].upper()} · {c['keyword_category']} · ❤️ {c['engagement']}"):
                     st.markdown(f"**Post:** {c['text']}")
                     st.markdown(f"**Author:** `@{c['author']}`  |  👥 {c['author_followers']:,} followers")
-                    st.markdown(f"**Keyword:** `{c['keyword']}`")
+                    if c.get("source") == "bluesky" and _bsky_url(c.get("post_id", "")):
+                        st.markdown(f"🔗 [Open the original Bluesky post — judge for yourself]({_bsky_url(c['post_id'])})")
+                    elif str(c.get("post_id", "")).startswith("http"):
+                        st.markdown(f"🔗 [Open the source article]({c['post_id']})")
                     st.success(f"**Why it's a claim:** {c['reason']}")
                     st.caption(f"❤️ {c['likes']}  🔁 {c['reposts']}  💬 {c['replies']}  🔗 {c['quotes']}  ·  {c['created_at'][:10]}")
 
     with right:
-        st.subheader("💬 Top 10 Opinions (Rejected)")
-        st.caption("High-engagement opinions spread widely despite containing no verifiable claim")
-        opinions = get_top_opinions(DB_PATH, limit=10)
+        st.markdown(f"**💬 Top 10 Opinions (Rejected)**  ·  {_SORT_LABEL[ce_sort].lower()}")
+        opinions = get_top_opinions(DB_PATH, limit=10, sort_by=ce_sort)
         if not opinions:
             st.info("No opinions classified yet.")
         else:
@@ -378,6 +380,10 @@ with tab1:
                 with st.expander(f"#{i} · {o['source'].upper()} · {o['keyword_category']} · ❤️ {o['engagement']}"):
                     st.markdown(f"**Post:** {o['text']}")
                     st.markdown(f"**Author:** `@{o['author']}`  |  👥 {o['author_followers']:,} followers")
+                    if o.get("source") == "bluesky" and _bsky_url(o.get("post_id", "")):
+                        st.markdown(f"🔗 [Open the original Bluesky post — judge for yourself]({_bsky_url(o['post_id'])})")
+                    elif str(o.get("post_id", "")).startswith("http"):
+                        st.markdown(f"🔗 [Open the source article]({o['post_id']})")
                     st.warning(f"**Why it was rejected:** {o['reason']}")
                     st.caption(f"❤️ {o['likes']}  🔁 {o['reposts']}  💬 {o['replies']}  🔗 {o['quotes']}  ·  {o['created_at'][:10]}")
 
@@ -474,9 +480,9 @@ with tab1:
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — EMBEDDING ANALYSIS
 # ═══════════════════════════════════════════════════════════════════════════════
-with tab2:
+def embedding_analysis():
 
-    st.subheader("🧬 Week 2 — Tokenisation and Embedding Evaluation")
+    st.subheader("🧬 Tokenisation & Embedding Evaluation")
     st.caption(
         f"Model: **{EMBED_MODEL}** · sentence-transformers · 384 dimensions · "
         "chosen over nomic-embed-text for higher MTEB STS scores"
@@ -586,8 +592,8 @@ with tab2:
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — BASE vs ADAPTER  (Week 5)
 # ═══════════════════════════════════════════════════════════════════════════════
-with tab3:
-    st.subheader("🧪 Week 5 — Base vs LoRA Adapter")
+def base_vs_adapter():
+    st.subheader("🧪 Base vs LoRA Adapter")
     st.caption(
         "A comparison harness, **not** a production switch. The shipped classifier is the "
         f"base `{MODEL}` (recall-first). The adapter is the Week-5 precision experiment — "
@@ -646,7 +652,7 @@ could not hold recall ≥ 0.90 **and** precision ≥ 0.85 together, so it is not
 
             with col_adapter:
                 st.markdown(f"#### Adapter · `{ADAPTER_MODEL}`")
-                st.caption("lean zero-shot prompt · Week 5 experiment")
+                st.caption("lean zero-shot prompt · adapter experiment")
                 with st.spinner("Adapter classifying..."):
                     a = classify_lean(post, model=ADAPTER_MODEL)
                 if a["has_claim"] is None:
@@ -687,8 +693,8 @@ could not hold recall ≥ 0.90 **and** precision ≥ 0.85 together, so it is not
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — EVIDENCE MATCHING  (Week 6)
 # ═══════════════════════════════════════════════════════════════════════════════
-with tab4:
-    st.subheader("🔎 Week 6 — Evidence Matching (RAG)")
+def evidence_matching():
+    st.subheader("🔎 Evidence Matching (RAG)")
     st.caption(
         "Stage 4: for a classified **claim**, retrieve the nearest **GDELT news** articles "
         "(ChromaDB · all-MiniLM-L6-v2), then an LLM re-rank judges whether any article describes "
@@ -777,3 +783,23 @@ with tab4:
                         st.caption(f"🖼️ Image (edge-case vision): **{v.get('image_type')}** · "
                                    f"depicts_claim={v.get('depicts_claim')} — {v.get('description','')}")
                     st.caption(f"Reader signal: {sig['summary']}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SIDEBAR NAVIGATION — Scanner (the product) vs Course demos (method views)
+# ═══════════════════════════════════════════════════════════════════════════════
+st.sidebar.title("🌪️ Climate Claim Scanner")
+st.sidebar.caption("Surfaces signals about Bluesky climate posts — *you* judge the post.")
+
+pg = st.navigation({
+    "🛡️ Scanner": [
+        st.Page(trust_checker, title="Trust Checker", icon="🛡️", default=True),
+    ],
+    "📚 Course demos": [
+        st.Page(classification_eval, title="Classification Evaluation", icon="🔍"),
+        st.Page(embedding_analysis, title="Embedding Analysis", icon="🧬"),
+        st.Page(base_vs_adapter, title="Base vs Adapter", icon="🧪"),
+        st.Page(evidence_matching, title="Evidence Matching (RAG)", icon="🔎"),
+    ],
+})
+pg.run()
