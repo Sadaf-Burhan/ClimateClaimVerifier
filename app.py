@@ -1,21 +1,25 @@
 """
 Climate Claim Scanner — Streamlit Dashboard
 
-Tab 1 (Week 1): Claim Presence Detection
-  Classifies ingested posts as claim / opinion using gemma2:2b.
-
-Tab 2 (Week 2): Embedding Analysis
-  Evaluates all-MiniLM-L6-v2 embeddings on domain pairs and DB category clustering.
+Trust Checker (the user-facing product): check a **Bluesky** climate/weather post and get the
+  signals to judge it — claim vs opinion, news corroboration (RAG) with credible sources, source
+  context, and a red flag for the reach-vs-support mismatch. It SURFACES signals; it never says a
+  post is true/false — the reader concludes.
+Claim Classifier (Week 1) · Embedding Analysis (Week 2) · Evidence Matching (Week 6) ·
+Base-vs-Adapter (Week 5): method / analysis tabs.
 
 Run:  uv run streamlit run app.py
 """
 
+import json
+import sqlite3
 import streamlit as st
 import yaml
 import pandas as pd
 from pathlib import Path
 
 from climate_verifier.pipeline.claim_classifier import (
+    classify,
     classify_pending,
     classify_batch,
     classify_lean,
@@ -51,6 +55,107 @@ EVAL_CSV       = Path(cfg["evaluation"]["claim_eval_csv"])
 CLAIM_RECALL_TARGET = float(cfg["evaluation"]["claim_recall_target"])
 PAIRS_CSV      = Path("data/embedding_pairs.csv")
 
+# ── Trust Checker helpers ───────────────────────────────────────────────────────
+@st.cache_resource
+def _trust_store():
+    return get_store()
+
+
+def _load_posts(db_path: str, has_claim: int, limit: int = 25) -> list[dict]:
+    """Top classified Bluesky posts (claims or opinions) by engagement, with the fields
+    the trust panel needs (incl. any stored vision signal)."""
+    con = sqlite3.connect(db_path); con.row_factory = sqlite3.Row
+    rows = con.execute("""
+        SELECT p.post_id, p.text, p.author, p.author_followers, p.vision_signal,
+               p.keyword_category, c.reason,
+               (p.likes + p.reposts + p.replies + p.quotes) AS engagement
+        FROM posts p JOIN classifications c ON p.post_id = c.post_id
+        WHERE c.has_claim = ? AND p.source = 'bluesky'
+        ORDER BY engagement DESC LIMIT ?
+    """, (has_claim, limit)).fetchall()
+    con.close()
+    return [dict(r) for r in rows]
+
+
+def _bsky_url(post_id: str) -> str:
+    """at://did:plc:xxx/app.bsky.feed.post/rkey -> https://bsky.app/profile/did/post/rkey"""
+    try:
+        parts = (post_id or "").replace("at://", "").split("/")
+        return f"https://bsky.app/profile/{parts[0]}/post/{parts[-1]}" if len(parts) >= 3 else ""
+    except Exception:
+        return ""
+
+
+_MISINFO_TIPS = """
+Wording that should make you look closer (these are *cues to check*, not proof of anything):
+- **Vague conspiracy** — "they're hiding the truth", "wake up", with no specific who / what / where.
+- **Unfalsifiable** — phrased so that no evidence could ever disprove it.
+- **Urgency & shouting** — "BREAKING", "PROOF INSIDE", "share before it's deleted".
+- **No source** — a strong factual claim with nothing to click through to.
+- **Cherry-picked stat** — one number used to wave away a broader trend.
+
+None of these make a post false — they mean *verify before you trust or share*. Open the original post
+and the news sources below and judge for yourself.
+"""
+
+
+def _render_trust(store, post: dict, classify_first: bool):
+    """Full trust panel for one post: classification → corroboration + credible sources →
+    reader signal → verification links. Surfaces signals; never asserts truth."""
+    text = post["text"]
+    st.markdown(f"**Post:** {text}")
+    url = _bsky_url(post.get("post_id", ""))
+    if url:
+        st.markdown(f"🔗 [Open the original Bluesky post to verify]({url})  ·  @{post.get('author','')}")
+
+    # Classification (fresh for a pasted post; stored label for a picked one)
+    if classify_first:
+        with st.spinner("Classifying claim vs opinion…"):
+            cl = classify(text, model=MODEL)
+        is_claim, reason = cl["has_claim"], cl["reason"]
+    else:
+        is_claim, reason = post.get("has_claim", 1) == 1, post.get("reason", "")
+    (st.info if is_claim else st.warning)(
+        f"**Classification: {'CLAIM' if is_claim else 'OPINION'}** — {reason}")
+    if not is_claim:
+        st.caption("Opinions have no specific factual event to corroborate — a strong match below would "
+                   "suggest this is actually a claim the classifier missed.")
+
+    vision = None
+    if post.get("vision_signal"):
+        try:
+            vision = json.loads(post["vision_signal"])
+        except Exception:
+            vision = None
+
+    with st.spinner("Retrieving news + checking corroboration…"):
+        a = assess_claim(store, text, engagement=int(post.get("engagement", 0)), source="bluesky",
+                         followers=post.get("author_followers", 0) or 0,
+                         author=post.get("author", "") or "", vision=vision, cfg=cfg)
+    sig, corro = a["signal"], a["corroboration"]
+    {"corroborated": st.success, "partial": st.warning, "none": st.error}[corro["verdict"]](
+        f"**Corroboration: {corro['verdict'].upper()}** — {corro['reason']}")
+
+    st.markdown("**Credible sources pulled from the news (GDELT · RAG) — open them to verify:**")
+    cited = sig.get("cited")
+    if a["retrieval"]["matches"]:
+        for m in a["retrieval"]["matches"]:
+            mark = "  ⬅ **cited**" if cited and m["url"] == cited.get("url") else ""
+            u = m["url"] if str(m["url"]).startswith("http") else ""
+            title = f"[{m['title'][:90]}]({u})" if u else m["title"][:90]
+            st.markdown(f"- `{m['similarity']:.3f}` · **{m['domain']}** · {m.get('date','')} · {title}{mark}")
+    else:
+        st.caption("No news articles retrieved.")
+
+    if sig["red_flag"]:
+        st.error("🚩 RED FLAG — high reach, no corroboration, unverified source, no cited evidence "
+                 "(the misinformation-amplification pattern). Verify before trusting or sharing.")
+    if vision:
+        st.caption(f"🖼️ Image (edge-case vision): **{vision.get('image_type')}** · "
+                   f"depicts_claim={vision.get('depicts_claim')} — {vision.get('description','')}")
+    st.caption(f"**Reader signal:** {sig['summary']}")
+
+
 # ── Page Setup ────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Climate Claim Scanner",
@@ -62,12 +167,93 @@ st.title("🌪️ Climate Claim Scanner")
 st.caption("NA Extreme Weather · Week 1: LLM Classification · Week 2: Embedding Analysis")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab4, tab3 = st.tabs([
+tab_trust, tab1, tab2, tab4, tab3 = st.tabs([
+    "🛡️ Trust Checker",
     "🔍 Claim Classifier  (Week 1)",
     "🧬 Embedding Analysis  (Week 2)",
     "🔎 Evidence Matching  (Week 6)",
     "🧪 Base vs Adapter  (Week 5)",
 ])
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TRUST CHECKER — the user-facing product: check a Bluesky post, get the signals
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_trust:
+    st.subheader("🛡️ Climate Claim Scanner — Trust Checker")
+    st.info(
+        "**What this is** — a *scanner* for **Bluesky** climate & extreme-weather posts. It surfaces "
+        "signals to help *you* judge a post: is it a checkable **claim** or an **opinion**? does published "
+        "news cover it? who posted it, with what reach and sources?\n\n"
+        "**What it is NOT** — it does **not** decide whether a post is true or false; that's a verdict it "
+        "can't make. It gives you the signals — **you** draw the conclusion. It works on **Bluesky posts "
+        "only** (paste a Bluesky post; it can't scan Facebook, X, or other platforms)."
+    )
+
+    store = _trust_store()
+    if store.count() == 0:
+        st.warning("Evidence index is empty — build it in the 🔎 Evidence Matching tab first.")
+    else:
+        claims = _load_posts(DB_PATH, 1, 25)
+        opinions = _load_posts(DB_PATH, 0, 25)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(f"**Top CLAIMS**  ·  {len(claims)}")
+            ci = st.selectbox("Pick a claim to check", options=list(range(len(claims))), index=None,
+                              format_func=lambda i: f"[{claims[i]['engagement']}] {claims[i]['text'][:55]}",
+                              key="tc_ci")
+            go_claims = st.button("▸ Assess ALL top claims", key="tc_ac")
+        with c2:
+            st.markdown(f"**Top OPINIONS**  ·  {len(opinions)}")
+            oi = st.selectbox("Pick an opinion to check", options=list(range(len(opinions))), index=None,
+                              format_func=lambda i: f"[{opinions[i]['engagement']}] {opinions[i]['text'][:55]}",
+                              key="tc_oi")
+            go_ops = st.button("▸ Assess ALL top opinions", key="tc_ao")
+
+        st.divider()
+        st.markdown("**Or check a new Bluesky post** — paste the post text (Bluesky only):")
+        nt = st.text_area("Bluesky post text", key="tc_nt", height=90,
+                          placeholder="Paste the text of a Bluesky post here…")
+        neng = st.number_input("Reach (likes + reposts + replies + quotes)", min_value=0, value=0, key="tc_ne")
+        go_new = st.button("Classify & assess", type="primary", key="tc_gn")
+
+        st.divider()
+        if go_new and nt.strip():
+            _render_trust(store, {"text": nt, "engagement": int(neng), "author": "", "source": "bluesky"},
+                          classify_first=True)
+        elif ci is not None:
+            p = dict(claims[ci]); p["has_claim"] = 1
+            _render_trust(store, p, classify_first=False)
+        elif oi is not None:
+            p = dict(opinions[oi]); p["has_claim"] = 0
+            _render_trust(store, p, classify_first=False)
+        elif go_claims:
+            with st.spinner("Assessing the top claims (one corroboration call each)…"):
+                results = assess_db_claims(store, DB_PATH, limit=10, cfg=cfg)
+            flags = sum(1 for r in results if r["signal"]["red_flag"])
+            st.write(f"**{flags} red-flag** of {len(results)} top claims.")
+            for r in results:
+                s = r["signal"]
+                icon = "🚩" if s["red_flag"] else ("✅" if s["verdict"] == "corroborated" else "•")
+                with st.expander(f"{icon}  [{r['engagement']}]  {r['text'][:70]}"):
+                    st.markdown(f"**Post:** {r['text']}")
+                    st.caption(f"Corroboration: **{s['verdict']}** — {s['reason']}")
+                    st.caption(s["summary"])
+        elif go_ops:
+            st.caption("Opinions usually return *no corroboration* (no factual event) — a corroborated one "
+                       "may be a mislabeled claim worth a look.")
+            with st.spinner("Assessing the top opinions…"):
+                for p in opinions[:8]:
+                    a = assess_claim(store, p["text"], engagement=p["engagement"], source="bluesky",
+                                     followers=p.get("author_followers", 0) or 0,
+                                     author=p.get("author", "") or "", cfg=cfg)
+                    with st.expander(f"[{p['engagement']}]  {p['text'][:70]}"):
+                        st.caption(f"Corroboration: **{a['corroboration']['verdict']}** — {a['corroboration']['reason']}")
+        else:
+            st.caption("Pick a claim or opinion above, or paste a new Bluesky post, then check it.")
+
+        with st.expander("ℹ️ How to spot misinformation wording"):
+            st.markdown(_MISINFO_TIPS)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — CLAIM CLASSIFIER
