@@ -178,8 +178,44 @@ metric comparisons are branch-vs-baseline on this same frozen set.
 ---
 
 ## Decisions (locked)
-1. **Vision model:** `qwen2.5-vl` (best natural-photo + OCR mix for real-vs-cartoon).
+1. **Vision model:** `qwen2.5vl:7b` (Ollama tag; best natural-photo + OCR mix for real-vs-cartoon).
 2. **Colab data transfer:** Google Drive mount.
-3. **Ingest volume:** **capped shakeout first** — a small run (e.g. `bluesky_limit: 15`) to prove the
-   whole Colab↔local pipeline end-to-end fast, then the full sweep once it's clean. The cap is a
-   config value, not a code change, so the shakeout and full run use identical code.
+3. **Ingest volume:** **capped shakeout first**, then full sweep. The cap is a config value, not a
+   code change, so shakeout and full run use identical code.
+
+---
+
+## Measured Outcome — shakeout (2026-07-10)
+
+Ran the full branch pipeline on a fresh shakeout: **745 bluesky posts** (GDELT skipped on Colab;
+**284-article** corroboration corpus ingested locally), classified **single-post**, **114 image-claims
+vision-scanned** on Colab GPU (`qwen2.5vl:7b`).
+
+**Fixes found & shipped during validation**
+- **WebP→JPEG** (`vision._fetch_jpeg`) — *the real unlock.* Bluesky serves WebP, which Ollama's image
+  loader can't decode; it silently fed the model blank images (identical canned descriptions).
+  Converting to JPEG made the model actually see the pictures.
+- **Gate widened to all categories** — FPs occur in every category (eval: combinations 47%), so gating
+  by topic was wrong; gate by *uncertainty* (image-claim not resolved by metadata).
+- **Official allowlist expanded** (`nws-bot.us`, `weather.im`) — widening exposed a flood of NWS relay
+  bots that weren't recognized as official.
+- **Single-post default** restored in `claim_classifier` (removed the stale batch-16 landmine).
+
+**The measurement**
+- **Coverage:** 114/119 image-claims scanned (**96%**; the 5-gap = failed image downloads).
+- **Vision's flag-flipping effect:** only **2 of 114** are rescue candidates (`real_photo + depicts=yes`);
+  one was corroborated anyway → **exactly 1 red-flag changed by vision** (`@yourcier`, correctly rescued
+  from a false flag). ≈ **1 corrected decision per 114 image-claims (~1 per 745 posts)**.
+- **Corroboration** fired on ~half the assessed claims — the real downstream precision workhorse.
+- The reach-vs-support red flag barely fires on fresh data (engagement mostly <30 vs `high_reach: 50`),
+  so vision's integration point is rarely active.
+
+**Conclusion (honest — the twin of the Week-5 LoRA result).** Vision is validated and *correct*: it
+rescues genuine event-photo posts from false flags and correctly declines to rescue cartoons/screenshots.
+But its addressable population is ~1% of image-claims, and it *must* stay strict (rescuing on "any real
+photo" would clear flags on photos that don't back the claim → hurts precision). **Vision is a sound,
+low-coverage supplement; corroboration carries downstream precision.** Not merged to `main` on a shakeout.
+
+**Next — accumulate & re-measure.** Vision's value depends on how often its trigger combination occurs.
+Ingest more data over subsequent days (`INSERT OR IGNORE` accumulates, engagement matures), then re-run
+this same measurement on a larger sample before deciding whether to promote.
