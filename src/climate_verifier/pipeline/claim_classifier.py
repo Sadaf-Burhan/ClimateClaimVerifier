@@ -4,10 +4,12 @@ Stage 3: Claim Presence Classifier
 Uses Ollama to determine whether a social media post contains a verifiable
 factual claim about a climate or extreme weather event.
 
-Posts are classified in batches: several posts share one prompt, so the
-few-shot instructions are paid for once per batch instead of once per post.
-Ollama's structured-output mode (`format` = JSON schema) guarantees parseable
-JSON, and reasons are kept short — on CPU, output tokens dominate runtime.
+Posts are classified ONE PER LLM REQUEST by default (`config.model.llm_batch_size: 1`).
+Batching several posts into one prompt amortizes the few-shot instructions, but it makes a
+small model drift and MISS claims — batch-16 cost ~0.19 recall (0.938 single-post vs 0.750
+batched). Single-post is many more calls, so run large backlogs on GPU. Batching is still
+available (raise `llm_batch_size`) purely as a deliberate recall-for-speed tradeoff.
+Ollama's structured-output mode (`format` = JSON schema) guarantees parseable JSON.
 
 Output per post:
   {"has_claim": true,  "reason": "Specific verifiable claim about ..."}
@@ -26,9 +28,10 @@ from pathlib import Path
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
 
-# Posts per LLM request. Larger batches amortize the prompt better but give
-# small models more room to drift; 16 stays well inside the 4096-token context.
-LLM_BATCH_SIZE = 16
+# Default posts per LLM request. 1 = single-post (recall-safe: batching drifts the small
+# model and misses claims — batch-16 cost ~0.19 recall). config.model.llm_batch_size
+# overrides this; raise it only to trade recall for speed on a GPU backlog.
+LLM_BATCH_SIZE = 1
 
 # Posts longer than this are truncated in the prompt to bound token cost.
 MAX_POST_CHARS = 500
