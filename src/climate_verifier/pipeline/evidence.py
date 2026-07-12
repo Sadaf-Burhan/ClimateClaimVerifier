@@ -280,10 +280,39 @@ def looks_like_forecast(text: str) -> bool:
     return bool(_FORECAST_RE.search(text or ""))
 
 
+# First-person, locally-anchored eyewitness observation: the poster reports a condition in
+# their OWN surroundings ("smoke over my neighbourhood"). National news never covers one
+# person's street, so GDELT-silence is uninformative — not the reach-vs-support red flag.
+_FIRST_PERSON_RE = re.compile(r"\b(i|i'?m|my|we|we'?re|our|me|us)\b", re.I)
+_LOCAL_ANCHOR_RE = re.compile(
+    r"\bmy (neighbou?rhood|street|town|city|area|block|backyard|back yard|yard|window|"
+    r"house|home|sky|skies|view|street|region|county)\b|"
+    r"\b(right here|out(?:side)? my window|overhead|above (?:me|us|my)|"
+    r"in my (?:area|town|city|neighbou?rhood|region)|where i (?:live|am))\b", re.I)
+# Negative guard — a first-person frame does NOT excuse a causal/mechanistic/conspiratorial
+# assertion (the "casualness is a trap" rule): those ARE the newsworthy claims a red flag targets.
+_NOT_EYEWITNESS_RE = re.compile(
+    r"\b(chemtrail|haarp|geoengineer|cloud seed|weather (?:manipulat|control|modif)|"
+    r"hoax|cover.?up|coverup|conspiracy|hiding|they'?re (?:spray|hiding|doing)|government|"
+    r"agenda|spraying|caused by|because of|proof|exposed|depopulat|deep state|"
+    r"scientists (?:hiding|lying)|man.?made|deliberate)\b", re.I)
+
+
+def looks_like_eyewitness(text: str) -> bool:
+    """Heuristic: a first-person observation of the poster's OWN local surroundings, and NOT a
+    causal/conspiratorial assertion. Such a claim is testimony news won't corroborate by nature —
+    absence of a news match is expected, so it should be reframed, not red-flagged."""
+    t = text or ""
+    if _NOT_EYEWITNESS_RE.search(t):
+        return False
+    return bool(_FIRST_PERSON_RE.search(t) and _LOCAL_ANCHOR_RE.search(t))
+
+
 def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: str,
                         followers: int = 0, domain: str = "", author: str = "",
                         citations: list[dict] | None = None, official: bool = False,
-                        vision: dict | None = None, forecast: bool = False, high_reach: int = 50) -> dict:
+                        vision: dict | None = None, forecast: bool = False, high_reach: int = 50,
+                        eyewitness: bool = False) -> dict:
     """
     Plain-language, *suggestive* reader signal from the corroboration verdict, reach,
     source context, self-citations, official-source status, and (for gated edge cases) an
@@ -337,12 +366,18 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
 
     reach_phrase = f"Reach: {engagement:,} engagements." if engagement else "Reach: low engagement."
 
+    # A first-person report of the poster's OWN surroundings that news can't corroborate by
+    # nature — GDELT-silence is uninformative here, so it does NOT count as the reach-vs-support
+    # mismatch. Only defuses when there is genuinely no corroboration (verdict none); if news DID
+    # match, the normal reading stands.
+    eyewitness_defused = eyewitness and verdict == "none"
+
     # Red flag ONLY when the reach-vs-support mismatch is real: high reach, no corroboration,
     # unverified social account, NOT official (directly or via reshare), NO credible cite,
-    # and NOT rescued by a real on-the-ground photo of the event.
+    # NOT rescued by a real on-the-ground photo, and NOT a hyperlocal eyewitness observation.
     red_flag = (engagement >= high_reach and verdict == "none"
                 and source == "bluesky" and not treated_official and not credible_cite
-                and not vision_supports)
+                and not vision_supports and not eyewitness_defused)
 
     parts = [evidence_phrase, src_phrase]
     if cite_phrase:
@@ -354,6 +389,13 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
         parts.append("High reach but no corroboration in the retrieved news, from an unverified source "
                      "with no cited evidence — worth a closer look; this is the pattern of "
                      "misinformation amplification.")
+    if eyewitness_defused:
+        # Frame the whole reading: testimony about the poster's own surroundings, which national
+        # news does not cover — so "no news match" is expected here, not a warning sign.
+        parts.insert(0, "This reads as a FIRST-PERSON EYEWITNESS observation of the poster's own "
+                        "surroundings — national news doesn't cover a single neighbourhood, so the "
+                        "absence of a news match is expected here, not a red flag. Judge it as "
+                        "testimony; an on-the-ground photo is the relevant evidence, not a news article.")
     if forecast:
         # Frame the whole reading: a future warning can't be reported as having happened.
         parts.insert(0, "This reads as a FORECAST / WARNING about a *future* event — published news can "
@@ -364,7 +406,8 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
             "cited": cited, "official": official, "self_cited": bool(citations),
             "credible_cite": credible_cite, "reshared_official": reshared_official,
             "treated_official": treated_official, "vision": vision,
-            "vision_supports": vision_supports, "forecast": forecast}
+            "vision_supports": vision_supports, "forecast": forecast,
+            "eyewitness": eyewitness_defused}
 
 
 def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int = 0,
@@ -392,10 +435,11 @@ def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int
         c["official"] = is_official(c["domain"], "", official_list)
     official = is_official(author, domain, official_list)
     forecast = looks_like_forecast(claim_text)
+    eyewitness = looks_like_eyewitness(claim_text)
     signal = build_reader_signal(retrieval, corro, engagement, source, followers=followers,
                                  domain=domain, author=author, citations=citations,
                                  official=official, vision=vision, forecast=forecast,
-                                 high_reach=ev.get("high_reach", 50))
+                                 high_reach=ev.get("high_reach", 50), eyewitness=eyewitness)
     return {"retrieval": retrieval, "corroboration": corro, "citations": citations,
             "official": official, "vision": vision, "signal": signal}
 

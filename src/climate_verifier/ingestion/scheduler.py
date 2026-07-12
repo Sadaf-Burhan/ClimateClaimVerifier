@@ -239,6 +239,27 @@ def run_ingestion_cycle(sources=None, force=False):
             total_dropped += dropped
             total += save(articles, db_path)
 
+    # ── Demand-driven evidence top-up ─────────────────────────────────────────
+    # Let the accumulated CLAIMS' topics+regions pull targeted GDELT news, so the corpus
+    # covers what people actually post about (not just the fixed keyword list). Cheap when
+    # coverage is already fresh — only topics below the recency floor are re-queried. Then
+    # rebuild the evidence index so the new articles are retrievable.
+    ing = cfg["ingestion"]
+    if "gdelt" in sources and ing.get("topup_enabled", True):
+        try:
+            added = topup_evidence_for_claims(
+                db_path, days_back=ing.get("topup_days_back", 7),
+                delay=gdelt_del / 2, retries=gdelt_ret,
+                min_recent=ing.get("topup_min_recent", 2),
+                max_age_days=ing.get("max_article_age_days", 45),
+                max_topics=ing.get("topup_max_topics", 60))
+            if added:
+                from climate_verifier.pipeline.evidence import get_store  # lazy: heavy import
+                n = get_store().build_index(db_path)
+                print(f"  Evidence index rebuilt — {n} GDELT articles now retrievable.")
+        except Exception as e:
+            print(f"  Evidence top-up skipped: {e}")
+
     # ── Record completion time ────────────────────────────────────────────────
     set_last_ingestion_time(db_path)
     print(

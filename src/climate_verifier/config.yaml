@@ -91,6 +91,8 @@ ingestion:
 
   # --- Demand-driven evidence top-up (claims' topic+region drive GDELT) ----------
   # No cap on articles-per-topic: recency + URL-dedup are the bounds, not a fixed number.
+  topup_enabled: true         # run the top-up at the end of each autonomous ingestion cycle
+                              #   (rebuilds the evidence index when new articles are added)
   topup_days_back: 7          # GDELT window for the demand-driven top-up queries
   topup_min_recent: 2         # floor: top a topic up until it has >= this many RECENT
                               #   articles (recency-based, so coverage self-refreshes as it ages)
