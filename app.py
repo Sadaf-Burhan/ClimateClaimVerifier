@@ -93,6 +93,23 @@ def _bsky_url(post_id: str) -> str:
         return ""
 
 
+_OTHER_PLATFORMS = ["facebook.com", "fb.com", "twitter.com", "x.com", "instagram.com",
+                    "tiktok.com", "reddit.com", "youtube.com", "youtu.be", "threads.net",
+                    "mastodon", "linkedin.com", "t.me"]
+
+
+def _non_bluesky_url(text: str) -> str:
+    """If the pasted text points at a non-Bluesky platform, return that platform name (else '').
+    Used to prompt the user that the scanner works on Bluesky posts only."""
+    t = (text or "").lower()
+    if "bsky.app" in t or "bsky.social" in t:      # explicitly Bluesky → fine
+        return ""
+    for p in _OTHER_PLATFORMS:
+        if p in t:
+            return p.split(".")[0] if "." in p else p
+    return ""
+
+
 _MISINFO_TIPS = """
 Wording that should make you look closer (these are *cues to check*, not proof of anything):
 - **Vague conspiracy** — "they're hiding the truth", "wake up", with no specific who / what / where.
@@ -199,7 +216,31 @@ def trust_checker():
     if store.count() == 0:
         st.warning("Evidence index is empty — build it on the **Evidence Matching (RAG)** page "
                    "(sidebar → Course demos).")
-    else:
+        return
+
+    tab_paste, tab_list = st.tabs(["📋 Paste a post", "🏆 Pick from top posts"])
+
+    # ── Mode 1 — paste one specific Bluesky post ──
+    with tab_paste:
+        nt = st.text_area("Paste a **Bluesky** post (its text, or a `bsky.app` link) — Bluesky only",
+                          key="tc_nt", height=110,
+                          placeholder="Paste a Bluesky post here… (not Facebook, X, Instagram, etc.)")
+        neng = st.number_input("Reach (likes + reposts + replies + quotes)", min_value=0, value=0, key="tc_ne")
+        if st.button("View results ▸", type="primary", key="tc_paste_go"):
+            other = _non_bluesky_url(nt)
+            if other:
+                st.error(f"That looks like a **{other.capitalize()}** link. This scanner works on "
+                         "**Bluesky posts only** — paste a Bluesky post, or its `bsky.app` link.")
+            elif not nt.strip():
+                st.warning("Paste a post first.")
+            else:
+                st.session_state["tc_result"] = {"posts": [
+                    {"text": nt, "engagement": int(neng), "source": "bluesky",
+                     "author": "", "classify_first": True}]}
+                st.switch_page(_page_results)
+
+    # ── Mode 2 — pick one, many, or all from the day's top posts ──
+    with tab_list:
         fc1, fc2 = st.columns([1, 1])
         sort_by = fc1.selectbox("Rank the day's top posts by", list(_SORT_LABEL),
                                 format_func=lambda s: _SORT_LABEL[s], key="tc_sort")
@@ -208,60 +249,58 @@ def trust_checker():
         opinions = _load_posts(DB_PATH, 0, n_top, sort_by)
 
         c1, c2 = st.columns(2)
-        with c1:
-            st.markdown(f"**Top CLAIMS**  ·  {len(claims)}")
-            ci = st.selectbox("Pick a claim to check", options=list(range(len(claims))), index=None,
+        csel = c1.multiselect(f"Top CLAIMS ({len(claims)}) — pick one or more",
+                              options=list(range(len(claims))),
                               format_func=lambda i: f"[{claims[i]['engagement']}] {claims[i]['text'][:55]}",
-                              key="tc_ci")
-            go_claims = st.button("▸ Assess ALL top claims", key="tc_ac")
-        with c2:
-            st.markdown(f"**Top OPINIONS**  ·  {len(opinions)}")
-            oi = st.selectbox("Pick an opinion to check", options=list(range(len(opinions))), index=None,
+                              key="tc_cms")
+        osel = c2.multiselect(f"Top OPINIONS ({len(opinions)}) — pick one or more",
+                              options=list(range(len(opinions))),
                               format_func=lambda i: f"[{opinions[i]['engagement']}] {opinions[i]['text'][:55]}",
-                              key="tc_oi")
-            go_ops = st.button("▸ Assess ALL top opinions", key="tc_ao")
+                              key="tc_oms")
+        assess_all = st.checkbox("…or assess ALL shown claims + opinions", key="tc_all")
 
-        st.divider()
-        st.markdown("**Or check a new Bluesky post** — paste the post text (Bluesky only):")
-        nt = st.text_area("Bluesky post text", key="tc_nt", height=90,
-                          placeholder="Paste the text of a Bluesky post here…")
-        neng = st.number_input("Reach (likes + reposts + replies + quotes)", min_value=0, value=0, key="tc_ne")
-        go_new = st.button("Classify & assess", type="primary", key="tc_gn")
+        if st.button("View results ▸", type="primary", key="tc_list_go"):
+            if assess_all:
+                chosen = ([dict(c, has_claim=1, classify_first=False) for c in claims] +
+                          [dict(o, has_claim=0, classify_first=False) for o in opinions])
+            else:
+                chosen = ([dict(claims[i], has_claim=1, classify_first=False) for i in csel] +
+                          [dict(opinions[i], has_claim=0, classify_first=False) for i in osel])
+            if not chosen:
+                st.warning("Pick at least one post, or check 'assess ALL shown'.")
+            else:
+                st.session_state["tc_result"] = {"posts": chosen}
+                st.switch_page(_page_results)
 
-        st.divider()
-        if go_new and nt.strip():
-            _render_trust(store, {"text": nt, "engagement": int(neng), "author": "", "source": "bluesky"},
-                          classify_first=True)
-        elif ci is not None:
-            p = dict(claims[ci]); p["has_claim"] = 1
-            _render_trust(store, p, classify_first=False)
-        elif oi is not None:
-            p = dict(opinions[oi]); p["has_claim"] = 0
-            _render_trust(store, p, classify_first=False)
-        elif go_claims:
-            with st.spinner("Assessing the top claims (one corroboration call each)…"):
-                results = assess_db_claims(store, DB_PATH, limit=10, cfg=cfg)
-            flags = sum(1 for r in results if r["signal"]["red_flag"])
-            st.write(f"**{flags} red-flag** of {len(results)} top claims.")
-            for r in results:
-                s = r["signal"]
-                icon = "🚩" if s["red_flag"] else ("✅" if s["verdict"] == "corroborated" else "•")
-                with st.expander(f"{icon}  [{r['engagement']}]  {r['text'][:70]}"):
-                    st.markdown(f"**Post:** {r['text']}")
-                    st.caption(f"Corroboration: **{s['verdict']}** — {s['reason']}")
-                    st.caption(s["summary"])
-        elif go_ops:
-            st.caption("Opinions usually return *no corroboration* (no factual event) — a corroborated one "
-                       "may be a mislabeled claim worth a look.")
-            with st.spinner("Assessing the top opinions…"):
-                for p in opinions[:8]:
-                    a = assess_claim(store, p["text"], engagement=p["engagement"], source="bluesky",
-                                     followers=p.get("author_followers", 0) or 0,
-                                     author=p.get("author", "") or "", cfg=cfg)
-                    with st.expander(f"[{p['engagement']}]  {p['text'][:70]}"):
-                        st.caption(f"Corroboration: **{a['corroboration']['verdict']}** — {a['corroboration']['reason']}")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCANNER — Results page (shown after 'View results')
+# ═══════════════════════════════════════════════════════════════════════════════
+def trust_results():
+    st.subheader("🛡️ Scanner Results")
+    if st.button("← Check another post"):
+        st.session_state.pop("tc_result", None)
+        st.switch_page(_page_trust)
+
+    data = st.session_state.get("tc_result")
+    if not data or not data.get("posts"):
+        st.info("No results yet — go to **Trust Checker** in the sidebar and run a check.")
+        return
+
+    store = _trust_store()
+    posts = data["posts"]
+    if len(posts) > 1:
+        st.caption(f"Assessing **{len(posts)}** posts — one corroboration call each; this can take a moment.")
+    st.divider()
+    for i, p in enumerate(posts, 1):
+        cf = p.get("classify_first", False)
+        if len(posts) == 1:
+            _render_trust(store, p, classify_first=cf)
         else:
-            st.caption("Pick a claim or opinion above, or paste a new Bluesky post, then check it.")
+            with st.expander(f"#{i} · {p['text'][:75]}", expanded=(i == 1)):
+                _render_trust(store, p, classify_first=cf)
+        st.divider()
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CLASSIFICATION EVALUATION (course demo)
@@ -800,10 +839,12 @@ def evidence_matching():
 st.sidebar.title("🌪️ Climate Claim Scanner")
 st.sidebar.caption("Surfaces signals about Bluesky climate posts — *you* judge the post.")
 
+# Page objects — referenced by trust_checker / trust_results for st.switch_page navigation.
+_page_trust = st.Page(trust_checker, title="Trust Checker", icon="🛡️", default=True)
+_page_results = st.Page(trust_results, title="Results", icon="📋")
+
 pg = st.navigation({
-    "🛡️ Scanner": [
-        st.Page(trust_checker, title="Trust Checker", icon="🛡️", default=True),
-    ],
+    "🛡️ Scanner": [_page_trust, _page_results],
     "📚 Course demos": [
         st.Page(classification_eval, title="Classification Evaluation", icon="🔍"),
         st.Page(embedding_analysis, title="Embedding Analysis", icon="🧬"),
