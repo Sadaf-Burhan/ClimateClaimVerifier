@@ -177,13 +177,18 @@ def _render_trust(store, post: dict, classify_first: bool):
     st.caption("The number is a **topic-similarity score** (0–1): cosine similarity between your claim "
                "and the article headline. Higher = closer wording/topic — it is **not** proof they "
                "describe the same event (that's what the corroboration verdict above judges).")
+    claim_loc = a["retrieval"].get("location")
+    if claim_loc:
+        st.caption(f"📍 Region-aware retrieval: read your claim as **{claim_loc}** and folded that into "
+                   "the search, so same-region news ranks higher.")
     cited = sig.get("cited")
     if a["retrieval"]["matches"]:
         for m in a["retrieval"]["matches"]:
             mark = "  ⬅ **cited**" if cited and m["url"] == cited.get("url") else ""
             u = m["url"] if str(m["url"]).startswith("http") else ""
             title = f"[{m['title'][:90]}]({u})" if u else m["title"][:90]
-            st.markdown(f"- `{m['similarity']:.3f}` · **{m['domain']}** · {m.get('date','')} · {title}{mark}")
+            loc = f" · 📍 {m['location']}" if m.get("location") else ""
+            st.markdown(f"- `{m['similarity']:.3f}` · **{m['domain']}**{loc} · {m.get('date','')} · {title}{mark}")
     else:
         st.caption("No news articles retrieved.")
 

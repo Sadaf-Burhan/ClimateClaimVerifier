@@ -17,6 +17,25 @@ evidence:                          # Week 6 — evidence matching (GDELT news co
   low_proximity: 0.40                 # <  : no corroboration                       (NONE)
   high_reach: 50                      # engagement >= this counts as "high reach" for the red flag
 
+  # --- Region- and time-aware retrieval (Week 6 improvement) ----------------------
+  # Location is derived per GDELT article (headline place-name, else the domain — e.g.
+  # weatherbc.com -> British Columbia) and embedded INTO the vector document; the claim's
+  # location is embedded into the query the same way, so same-region news ranks higher.
+  # Soft by design (no hard location filter — a US outlet covering a BC fire has no "bc"
+  # in its domain and must still match). Rebuild the index after changing this:
+  #   uv run python -m climate_verifier.pipeline.evidence --build
+  use_llm_rerank: false               # region-aware retrieval carries the match, so the LLM
+                                      #   corroboration re-rank is OPTIONAL. false = trust
+                                      #   retrieval (verdict from proximity; a strong match is
+                                      #   "partial", never "corroborated"). true = keep the
+                                      #   'same specific event vs same region+time, different
+                                      #   event' guard (one extra LLM call per claim).
+  date_window_days: 0                 # HARD +/-N-day filter on article date vs the claim's
+                                      #   date. 0 = OFF (default): a live pasted post is dated
+                                      #   NOW while the corpus is from its ingestion window, so
+                                      #   a filter would drop every article. Set e.g. 14 only
+                                      #   when claim and corpus are temporally aligned.
+
   # A post is NOT red-flagged if it comes from an official source (official warnings /
   # forecasts are legitimate and have no news corroboration yet). Conservative suffix
   # match on the account handle / news domain — an "altgov" lookalike must NOT match.

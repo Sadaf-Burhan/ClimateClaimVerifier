@@ -32,6 +32,8 @@ import ollama
 import yaml
 from chromadb.utils import embedding_functions
 
+from climate_verifier.pipeline.geo import extract_location, with_location
+
 CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
 COLLECTION = "gdelt_evidence"
 
@@ -49,6 +51,14 @@ def _iso_date(created_at: str) -> str:
     if len(s) >= 8 and s[:8].isdigit():          # GDELT compact 20260605T221500Z
         return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
     return s[:10]                                # ISO 2026-06-05T... -> 2026-06-05
+
+
+def _date_int(created_at: str) -> int:
+    """YYYYMMDD integer for the hard date-window `where` filter, or 0 if unparseable.
+    Numeric so ChromaDB can range-compare ($gte/$lte)."""
+    iso = _iso_date(created_at)                  # -> 'YYYY-MM-DD'
+    digits = iso.replace("-", "")
+    return int(digits) if len(digits) == 8 and digits.isdigit() else 0
 
 
 class ClimateEvidenceStore:
@@ -86,41 +96,75 @@ class ClimateEvidenceStore:
 
         rows = [r for r in rows if (r["text"] or "").strip()]
         if rows:
-            self.collection.upsert(
-                ids=[r["post_id"] for r in rows],
-                documents=[r["text"] for r in rows],
-                metadatas=[{
+            # Region-aware index: derive a coarse location (headline place-name, else the
+            # domain — e.g. weatherbc.com -> British Columbia) and embed it INTO the document
+            # so dense retrieval prefers same-region news. `location`/`date_int` also live in
+            # metadata (date_int powers the optional hard date-window filter at query time).
+            docs, metas, ids = [], [], []
+            for r in rows:
+                loc = extract_location(r["text"], r["author"] or "")
+                docs.append(with_location(r["text"], loc))
+                metas.append({
                     "domain":   r["author"] or "",
                     "url":      r["post_id"],
                     "category": r["keyword_category"] or "",
                     "date":     _iso_date(r["created_at"]),
-                } for r in rows],
-            )
+                    "date_int": _date_int(r["created_at"]),
+                    "location": loc,
+                    "headline": r["text"],          # clean title (document carries the loc suffix)
+                })
+                ids.append(r["post_id"])
+            self.collection.upsert(ids=ids, documents=docs, metadatas=metas)
         return self.collection.count()
 
     def evidence_for_claim(self, claim_text: str, k: int = 5,
-                           high: float = 0.60, low: float = 0.40) -> dict:
+                           high: float = 0.60, low: float = 0.40,
+                           claim_date: str = "", date_window_days: int = 0) -> dict:
         """
-        Returns {proximity, tier, matches}:
+        Region- and time-aware retrieval. Returns {proximity, tier, location, matches}:
           proximity — top cosine similarity to any GDELT article (0-1)
           tier      — HIGH (news covers a similar event) / LOW / NONE (no corroboration)
-          matches   — top-k articles [{title, domain, url, date, similarity}]
+          location  — the location derived from the claim and folded into the query
+          matches   — top-k articles [{title, domain, url, date, location, similarity}]
+
+        The claim's location is embedded INTO the query (same `with_location` form as the
+        index) so same-region news ranks higher — a soft nudge, no pruning. `date_window_days`
+        > 0 adds a HARD `where` filter to articles within +/-N days of the claim's date
+        (dates are reliable, unlike best-effort location); 0 (default) disables it, because a
+        live pasted post is dated NOW while the corpus is from its ingestion window — a date
+        filter would then drop every article. Enable it only when claim and corpus are
+        temporally aligned (e.g. batch-assessing same-era DB posts).
         """
         n = self.collection.count()
         if n == 0 or not (claim_text or "").strip():
-            return {"proximity": 0.0, "tier": "NONE", "matches": []}
-        res = self.collection.query(query_texts=[claim_text], n_results=min(k, n))
-        sims = [round(1 - d, 3) for d in res["distances"][0]]
+            return {"proximity": 0.0, "tier": "NONE", "location": "", "matches": []}
+        loc = extract_location(claim_text)
+        query = with_location(claim_text, loc)
+
+        where = None
+        if date_window_days > 0:
+            ci = _date_int(claim_date)
+            if ci:
+                lo, hi = ci - date_window_days, ci + date_window_days
+                where = {"$and": [{"date_int": {"$gte": lo}}, {"date_int": {"$lte": hi}}]}
+
+        res = self.collection.query(query_texts=[query], n_results=min(k, n), where=where)
+        # a `where` filter can return fewer than k (or zero) — guard the empty case
+        docs = res["documents"][0] if res["documents"] else []
+        metas = res["metadatas"][0] if res["metadatas"] else []
+        dists = res["distances"][0] if res["distances"] else []
+        sims = [round(1 - d, 3) for d in dists]
         matches = [{
-            "title":      doc,
+            "title":      m.get("headline", doc),   # clean title; doc carries the loc suffix
             "domain":     m.get("domain", ""),
             "url":        m.get("url", ""),
             "date":       m.get("date", ""),
+            "location":   m.get("location", ""),
             "similarity": s,
-        } for doc, m, s in zip(res["documents"][0], res["metadatas"][0], sims)]
+        } for doc, m, s in zip(docs, metas, sims)]
         top = sims[0] if sims else 0.0
         tier = "HIGH" if top >= high else ("LOW" if top >= low else "NONE")
-        return {"proximity": top, "tier": tier, "matches": matches}
+        return {"proximity": top, "tier": tier, "location": loc, "matches": matches}
 
 
 # Re-ranking pass (Module 6 "Advanced RAG"): dense retrieval finds topically-similar
@@ -177,6 +221,22 @@ def corroboration_check(claim_text: str, matches: list[dict], model: str) -> dic
                 "reason": str(d.get("reason", ""))}
     except Exception as e:
         return {"verdict": "none", "article": 0, "reason": f"check error: {e}"}
+
+
+def retrieval_only_verdict(retrieval: dict) -> dict:
+    """Verdict from region-aware retrieval ALONE (when `use_llm_rerank` is off).
+
+    Honest by construction: proximity is topical+regional similarity, NOT event-level
+    confirmation, so a strong match becomes "partial" (open the source to confirm the
+    specific event) and never "corroborated" — only the LLM re-read can claim that. A weak
+    match is "none". This keeps the reach-vs-support red flag firing when nothing matches,
+    without the extra LLM call the region-aware retrieval was built to make unnecessary."""
+    tier = retrieval.get("tier", "NONE")
+    if tier == "HIGH" and retrieval.get("matches"):
+        return {"verdict": "partial", "article": 1,
+                "reason": "strong same-region match on retrieval (LLM re-rank off) — open to confirm"}
+    return {"verdict": "none", "article": 0,
+            "reason": "no strong same-region match (LLM re-rank off)"}
 
 
 _URL_RE = re.compile(r"https?://[^\s)\]>]+|www\.[^\s)\]>]+", re.I)
@@ -309,16 +369,23 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
 
 def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int = 0,
                  source: str = "bluesky", followers: int = 0, domain: str = "",
-                 author: str = "", vision: dict | None = None, cfg: dict | None = None) -> dict:
-    """Full Stage-4 assessment: retrieve → corroborate (LLM re-rank) → reader signal,
+                 author: str = "", vision: dict | None = None, cfg: dict | None = None,
+                 claim_date: str = "") -> dict:
+    """Full Stage-4 assessment: retrieve (region/time-aware) → corroborate → reader signal,
     factoring self-citations, official-source status, and (edge cases) an image signal
-    into the red flag."""
+    into the red flag. The LLM corroboration re-rank is optional (`evidence.use_llm_rerank`):
+    when off, the verdict comes from region-aware retrieval alone."""
     cfg = cfg or _load_cfg()
     ev = cfg.get("evidence", {})
     retrieval = store.evidence_for_claim(claim_text, k=ev.get("top_k", 5),
                                          high=ev.get("high_proximity", 0.60),
-                                         low=ev.get("low_proximity", 0.40))
-    corro = corroboration_check(claim_text, retrieval["matches"], model=cfg["model"]["name"])
+                                         low=ev.get("low_proximity", 0.40),
+                                         claim_date=claim_date,
+                                         date_window_days=ev.get("date_window_days", 0))
+    if ev.get("use_llm_rerank", False):
+        corro = corroboration_check(claim_text, retrieval["matches"], model=cfg["model"]["name"])
+    else:
+        corro = retrieval_only_verdict(retrieval)
     official_list = ev.get("official_sources", [])
     citations = extract_citations(claim_text, ev.get("citation_domains", []))
     for c in citations:                                  # does the link reshare an official source?
@@ -341,7 +408,7 @@ def assess_db_claims(store: "ClimateEvidenceStore", db_path: str, limit: int = 1
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
     rows = con.execute("""
-        SELECT p.text, p.source, p.author, p.author_followers, p.vision_signal,
+        SELECT p.text, p.source, p.author, p.author_followers, p.vision_signal, p.created_at,
                (p.likes + p.reposts + p.replies + p.quotes) AS engagement
         FROM posts p JOIN classifications c ON p.post_id = c.post_id
         WHERE c.has_claim = 1
@@ -357,7 +424,8 @@ def assess_db_claims(store: "ClimateEvidenceStore", db_path: str, limit: int = 1
             vision = None
         a = assess_claim(store, r["text"], engagement=r["engagement"], source=r["source"],
                          followers=r["author_followers"] or 0, author=r["author"] or "",
-                         domain=r["author"] if r["source"] == "gdelt" else "", vision=vision, cfg=cfg)
+                         domain=r["author"] if r["source"] == "gdelt" else "", vision=vision, cfg=cfg,
+                         claim_date=r["created_at"] or "")
         out.append({"text": r["text"], "author": r["author"], "source": r["source"],
                     "engagement": r["engagement"], **a})
     return out
@@ -389,9 +457,12 @@ def main():
     if args.claim:
         a = assess_claim(store, args.claim, engagement=args.engagement, cfg=cfg)
         print(f"\nClaim: {args.claim}")
+        if a["retrieval"].get("location"):
+            print(f"Claim location (folded into query): {a['retrieval']['location']}")
         print(f"Retrieved (top proximity {a['retrieval']['proximity']:.3f}):")
         for m in a["retrieval"]["matches"]:
-            print(f"  {m['similarity']:.3f}  [{m['domain']}]  {m['title'][:75]}")
+            loc = f"  <{m['location']}>" if m.get("location") else ""
+            print(f"  {m['similarity']:.3f}  [{m['domain']}]  {m['title'][:70]}{loc}")
         print(f"Corroboration: {a['corroboration']['verdict'].upper()} — {a['corroboration']['reason']}")
         print(f"Red flag: {a['signal']['red_flag']}")
         print(f"READER SIGNAL: {a['signal']['summary']}")
