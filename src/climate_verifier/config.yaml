@@ -89,6 +89,16 @@ ingestion:
   gdelt_delay_seconds: 10     # delay between GDELT requests (rate limit)
   gdelt_retries: 3
 
+  # --- Demand-driven evidence top-up (claims' topic+region drive GDELT) ----------
+  # No cap on articles-per-topic: recency + URL-dedup are the bounds, not a fixed number.
+  topup_days_back: 7          # GDELT window for the demand-driven top-up queries
+  topup_min_recent: 2         # floor: top a topic up until it has >= this many RECENT
+                              #   articles (recency-based, so coverage self-refreshes as it ages)
+  max_article_age_days: 45    # DATE RELEVANCY: never ingest an article older than this. GDELT
+                              #   already returns recent news; this is a hard guard so a stale
+                              #   (e.g. years-old) article can never enter the corpus.
+  topup_max_topics: 60        # per-run safety cap on distinct topics queried (logged, not silent)
+
   keywords:
 
     # --- Scientific / Factual ---

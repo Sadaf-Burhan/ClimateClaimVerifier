@@ -10,10 +10,15 @@ from datetime import datetime, timezone
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 
 
-def fetch_articles(keyword: str, days_back: int, delay: float, retries: int) -> list[dict]:
+def fetch_articles(keyword: str, days_back: int, delay: float, retries: int,
+                   timeout: int = 30) -> list[dict]:
     """
     Query GDELT for recent articles matching keyword.
     Returns a list of normalised dicts ready for storage.
+
+    `timeout` is the per-request HTTP timeout (seconds). Broad single-word queries can hang
+    GDELT; callers doing many queries (the demand-driven top-up) pass a shorter timeout so a
+    slow query fails fast and the run moves on instead of blocking for timeout*retries.
     """
     params = {
         "query":      keyword,
@@ -26,7 +31,7 @@ def fetch_articles(keyword: str, days_back: int, delay: float, retries: int) -> 
     data = {}
     for attempt in range(retries):
         try:
-            resp = requests.get(GDELT_URL, params=params, timeout=30)
+            resp = requests.get(GDELT_URL, params=params, timeout=timeout)
             if resp.status_code == 429:
                 wait = (attempt + 1) * 20
                 print(f"  GDELT rate limited — waiting {wait}s (attempt {attempt+1})")
