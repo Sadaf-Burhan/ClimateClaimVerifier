@@ -379,23 +379,67 @@ Single source of truth. All parameters — model names, ingestion intervals, key
 
 ## Running the Project
 
-```bash
-# 1. Install dependencies
-uv sync
+The system runs as **two layers**: an **external-facing scanner** (the app the user opens) and an
+**in-house maintenance** layer that keeps the data fresh. They are decoupled — the app only ever
+*reads* `data/`; maintenance *writes* it.
 
-# 2. Start Ollama (required for Tab 1 — claim classifier)
-ollama serve
-ollama pull qwen2.5:3b   # first time only
-
-# 3. Start ingestion (runs once immediately, then every 24h automatically)
-#    Run in a separate terminal and leave it running
-uv run python -m climate_verifier.ingestion.scheduler
-
-# 4. Launch the dashboard (separate terminal)
-uv run streamlit run app.py
+```
+🌐 EXTERNAL — the scanner          🔧 IN-HOUSE — maintenance
+   Streamlit app (reads data/)        ├─ Local, daily (CPU, autonomous): ingest + evidence top-up
+   Trust Checker + Evaluation/drift   └─ Colab, 2–3×/week (GPU): classify + vision + evaluate → export
 ```
 
-Tab 2 (Embedding Analysis) works without Ollama running — it uses sentence-transformers only.
+### A. Run the scanner (external-facing)
+
+```bash
+uv sync                       # install deps (first time)
+uv run streamlit run app.py   # open http://localhost:8501
+```
+
+The app reads `data/ingested.db`, `data/eval_history.jsonl`, and `data/health.json`. The sidebar
+shows a **maintenance-health readout** (🟢/🟡/🔴 per stage) and the Evaluation tab shows **model-drift
+charts** — so a stale corpus or a failed run is visible, never silent. Live corroboration in the Trust
+Checker needs Ollama up (`ollama serve`); the rest works without it.
+
+### B. In-house maintenance
+
+**B1 — Local daily ingestion (autonomous, CPU, no GPU).** Accumulates raw posts and tops up
+region-targeted GDELT evidence every 24h. Two ways to run it:
+
+```bash
+# Long-running scheduler (runs now, then every 24h):
+uv run python -m climate_verifier.ingestion.scheduler
+
+# OR one-shot for an OS scheduler (Windows Task Scheduler / cron) — exits non-zero on failure
+# so the scheduler's own alert fires:
+uv run python -m climate_verifier.ingestion.scheduler --once
+```
+
+Each run writes an `ingestion` heartbeat to `data/health.json`. To schedule it on Windows: Task
+Scheduler → Create Task → Trigger: Daily → Action: `uv run python -m climate_verifier.ingestion.scheduler --once`
+(Start in: the project dir). Enable *"Run whether user is logged on or not"*.
+
+**B2 — Colab GPU pass (`classify → vision → reindex → evaluate`), 2–3×/week.** Open
+[`notebooks/colab_daily_maintenance.ipynb`](notebooks/colab_daily_maintenance.ipynb) in Colab, set
+`DRIVE_DIR` to your synced Drive folder, and Run all. It runs the whole chain via one module and
+exports `ingested.db`, `eval_history.jsonl`, `health.json`, and `chroma_evidence/` back to Drive for
+the website. The same chain runs locally if you ever have a GPU:
+
+```bash
+uv run python -m climate_verifier.maintenance --all        # classify → vision → reindex → evaluate
+uv run python -m climate_verifier.maintenance --evaluate   # just record a drift snapshot
+```
+
+Every stage writes its own heartbeat (`classification` / `vision` / `evaluation`) and evaluation
+appends a **drift snapshot** to `data/eval_history.jsonl` — the recall/precision/FN:FP series the app
+plots to catch classifier drift before users feel it.
+
+### Glitch signal
+
+No run fails silently: each stage records `{ok, ts, …}` (or the error) in `data/health.json`, the app
+turns the sidebar chip 🔴 and shows a red banner, and the one-shot runners exit non-zero so the OS
+scheduler / Colab cell surfaces the failure. The drift charts are the slower signal — a sustained
+recall decline means the model is degrading.
 
 ---
 
@@ -407,10 +451,14 @@ Tab 2 (Embedding Analysis) works without Ollama running — it uses sentence-tra
 | 2 | Tokenisation, embeddings, cosine similarity | `embedder.py`, `claim_eval.csv`, `embedding_pairs.csv`, Tab 2 |
 | 4 | Prompt engineering & evaluation | leak-free 8-shot + CoT prompt; found + fixed eval leakage and the batch-mode artifact (recall 0.750 → 0.938 single-post); precision is the open problem |
 | 5 | Fine-tuning with LoRA adapters | trained a precision-targeted QLoRA adapter; measured the recall/precision tradeoff is unbreakable at the target corner → ship base, no adapter; Base-vs-Adapter demo tab (`models/`, Tab 3) |
-| 6–8 | Future work | RAG evidence retrieval (ChromaDB), source credibility lookup, multimodal |
+| 6 | RAG evidence retrieval | ChromaDB dense retrieval of GDELT news; **region-aware** (claim location embedded into the query) + **demand-driven ingestion** (claims' topic+region pull targeted news) |
+| 7 | Multimodal | gated vision on edge-case images (real photo vs cartoon/synthetic) — Colab GPU |
+| 8 | Ops & drift | two-layer runbook (local daily ingest + Colab GPU maintenance), health heartbeats, evaluation drift charts |
 
-Your workflow from now on will be:
+### Day-to-day workflow
 
-Run ingestion locally as normal (Bluesky/GDELT fetch)
-When you have a backlog: export → Colab → import
-Continue with dashboard/evaluation locally
+1. **Local daily ingestion** runs autonomously (scheduler or Task Scheduler `--once`) — no action needed.
+2. **2–3×/week**, run [`notebooks/colab_daily_maintenance.ipynb`](notebooks/colab_daily_maintenance.ipynb)
+   on Colab (GPU): classify + vision + evaluate, then it exports results to Drive.
+3. **Pull the exported `data/` back into the project**; the app serves the fresh data. Check the
+   sidebar health chips and the Evaluation drift charts.
