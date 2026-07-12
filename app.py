@@ -140,10 +140,25 @@ def _render_trust(store, post: dict, classify_first: bool):
                          followers=post.get("author_followers", 0) or 0,
                          author=post.get("author", "") or "", vision=vision, cfg=cfg)
     sig, corro = a["signal"], a["corroboration"]
-    {"corroborated": st.success, "partial": st.warning, "none": st.error}[corro["verdict"]](
-        f"**Corroboration: {corro['verdict'].upper()}** — {corro['reason']}")
 
-    st.markdown("**Credible sources pulled from the news (GDELT · RAG) — open them to verify:**")
+    # ── THE SIGNAL — the clear reading for the reader, up top, in bold bullets ──
+    st.markdown("### 🧭 What the scanner is telling you")
+    if sig["red_flag"]:
+        st.error("🚩 **RED FLAG** — spreading widely, no news corroboration, unverified source, no cited "
+                 "evidence. This is the misinformation-amplification pattern — **verify before you trust "
+                 "or share.**")
+    for b in sig.get("bullets", []):
+        st.markdown(f"- **{b}**")
+    st.caption(f"Corroboration verdict: **{corro['verdict'].upper()}** — {corro['reason']}")
+    if vision:
+        st.caption(f"🖼️ Image (edge-case vision): **{vision.get('image_type')}** · "
+                   f"depicts_claim={vision.get('depicts_claim')} — {vision.get('description','')}")
+
+    # ── The evidence the reading is based on ──
+    st.markdown("#### 📰 News the scanner retrieved (RAG) — open them to verify")
+    st.caption("The number is a **topic-similarity score** (0–1): cosine similarity between your claim "
+               "and the article headline. Higher = closer wording/topic — it is **not** proof they "
+               "describe the same event (that's what the corroboration verdict above judges).")
     cited = sig.get("cited")
     if a["retrieval"]["matches"]:
         for m in a["retrieval"]["matches"]:
@@ -153,14 +168,6 @@ def _render_trust(store, post: dict, classify_first: bool):
             st.markdown(f"- `{m['similarity']:.3f}` · **{m['domain']}** · {m.get('date','')} · {title}{mark}")
     else:
         st.caption("No news articles retrieved.")
-
-    if sig["red_flag"]:
-        st.error("🚩 RED FLAG — high reach, no corroboration, unverified source, no cited evidence "
-                 "(the misinformation-amplification pattern). Verify before trusting or sharing.")
-    if vision:
-        st.caption(f"🖼️ Image (edge-case vision): **{vision.get('image_type')}** · "
-                   f"depicts_claim={vision.get('depicts_claim')} — {vision.get('description','')}")
-    st.caption(f"**Reader signal:** {sig['summary']}")
 
 
 # ── Page Setup ────────────────────────────────────────────────────────────────
@@ -193,10 +200,12 @@ def trust_checker():
         st.warning("Evidence index is empty — build it on the **Evidence Matching (RAG)** page "
                    "(sidebar → Course demos).")
     else:
-        sort_by = st.selectbox("Rank the day's top posts by", list(_SORT_LABEL),
-                               format_func=lambda s: _SORT_LABEL[s], key="tc_sort")
-        claims = _load_posts(DB_PATH, 1, 25, sort_by)
-        opinions = _load_posts(DB_PATH, 0, 25, sort_by)
+        fc1, fc2 = st.columns([1, 1])
+        sort_by = fc1.selectbox("Rank the day's top posts by", list(_SORT_LABEL),
+                                format_func=lambda s: _SORT_LABEL[s], key="tc_sort")
+        n_top = fc2.slider("How many top posts to choose from", 5, 50, 10, step=5, key="tc_n")
+        claims = _load_posts(DB_PATH, 1, n_top, sort_by)
+        opinions = _load_posts(DB_PATH, 0, n_top, sort_by)
 
         c1, c2 = st.columns(2)
         with c1:

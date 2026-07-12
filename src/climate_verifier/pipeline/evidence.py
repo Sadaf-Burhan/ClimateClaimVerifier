@@ -208,10 +208,22 @@ def is_official(author: str, gdelt_domain: str, official: list[str]) -> bool:
     return False
 
 
+_FORECAST_RE = re.compile(
+    r"\b(warn(?:ing|s|ed)?|forecast|expected|about to|braces? for|on track to|"
+    r"this (?:weekend|week)|upcoming|will (?:hit|bring|be|cause)|advisory|watch|outlook|"
+    r"heading (?:for|toward)|set to|days? ahead|week ahead)\b", re.I)
+
+
+def looks_like_forecast(text: str) -> bool:
+    """Heuristic: does the claim describe a FUTURE/predicted event (a warning/forecast)?
+    Such claims can't be corroborated as having happened — news reports the warning, not the event."""
+    return bool(_FORECAST_RE.search(text or ""))
+
+
 def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: str,
                         followers: int = 0, domain: str = "", author: str = "",
                         citations: list[dict] | None = None, official: bool = False,
-                        vision: dict | None = None, high_reach: int = 50) -> dict:
+                        vision: dict | None = None, forecast: bool = False, high_reach: int = 50) -> dict:
     """
     Plain-language, *suggestive* reader signal from the corroboration verdict, reach,
     source context, self-citations, official-source status, and (for gated edge cases) an
@@ -282,12 +294,17 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
         parts.append("High reach but no corroboration in the retrieved news, from an unverified source "
                      "with no cited evidence — worth a closer look; this is the pattern of "
                      "misinformation amplification.")
-    return {"summary": " ".join(parts), "red_flag": red_flag, "verdict": verdict,
+    if forecast:
+        # Frame the whole reading: a future warning can't be reported as having happened.
+        parts.insert(0, "This reads as a FORECAST / WARNING about a *future* event — published news can "
+                        "corroborate that the warning was issued, but a future event cannot be reported as "
+                        "having already happened. Weigh the warning, not an occurrence.")
+    return {"summary": " ".join(parts), "bullets": parts, "red_flag": red_flag, "verdict": verdict,
             "proximity": retrieval["proximity"], "reason": corro.get("reason", ""),
             "cited": cited, "official": official, "self_cited": bool(citations),
             "credible_cite": credible_cite, "reshared_official": reshared_official,
             "treated_official": treated_official, "vision": vision,
-            "vision_supports": vision_supports}
+            "vision_supports": vision_supports, "forecast": forecast}
 
 
 def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int = 0,
@@ -307,9 +324,11 @@ def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int
     for c in citations:                                  # does the link reshare an official source?
         c["official"] = is_official(c["domain"], "", official_list)
     official = is_official(author, domain, official_list)
+    forecast = looks_like_forecast(claim_text)
     signal = build_reader_signal(retrieval, corro, engagement, source, followers=followers,
                                  domain=domain, author=author, citations=citations,
-                                 official=official, vision=vision, high_reach=ev.get("high_reach", 50))
+                                 official=official, vision=vision, forecast=forecast,
+                                 high_reach=ev.get("high_reach", 50))
     return {"retrieval": retrieval, "corroboration": corro, "citations": citations,
             "official": official, "vision": vision, "signal": signal}
 
