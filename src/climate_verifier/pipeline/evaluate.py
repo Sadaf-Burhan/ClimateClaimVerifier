@@ -266,8 +266,10 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate the claim classifier on the labeled eval set.")
     parser.add_argument("--model", default=cfg["model"]["name"],
                         help="Ollama model to evaluate (default: model.name from config.yaml)")
-    parser.add_argument("--no-snapshot", action="store_true",
-                        help="don't append this run to the drift log (data/eval_history.jsonl)")
+    parser.add_argument("--snapshot", action="store_true",
+                        help="append this run to the drift log (data/eval_history.jsonl). Off by "
+                             "default — the drift series is produced by the Colab GPU maintenance "
+                             "pass so every point shares one backend; a local CPU run would not compare.")
     args = parser.parse_args()
     model = args.model
 
@@ -276,10 +278,13 @@ def main():
     results = run_eval(csv_path, model=model, llm_batch_size=llm_batch_size)
     metrics = compute_metrics(results, claim_recall_target=target)
     print(format_report(metrics))
-    if not args.no_snapshot:
+    if args.snapshot:
         rec = snapshot_metrics(metrics, model=model)
         print(f"\nDrift log updated: {EVAL_HISTORY_PATH} (recall {rec['recall']}, "
               f"precision {rec['precision']}, FN/FP {rec['false_negatives']}/{rec['false_positives']}).")
+    else:
+        print("\n(Diagnostic run — not written to the drift log. Use --snapshot to record it, "
+              "or run the Colab GPU maintenance pass for a backend-comparable point.)")
 
 
 if __name__ == "__main__":

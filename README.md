@@ -504,6 +504,15 @@ Every stage writes its own heartbeat (`classification` / `vision` / `evaluation`
 appends a **drift snapshot** to `data/eval_history.jsonl` — the recall/precision/FN:FP series the app
 plots to catch classifier drift before users feel it.
 
+> **Evaluation runs on Colab GPU only** — and the drift chart is built from those runs. The classifier
+> is **nondeterministic even at `temperature 0`**: a borderline opinion can flip between two identical
+> runs (observed: precision 0.687 → 0.697 back-to-back on the same machine), and the swing is larger
+> across backends (GPU vs CPU). Precision is measured over only ~52 opinions, so each flip moves it
+> ~1.5 points — which is why **precision jitters ±several points and only recall + a sustained trend
+> are meaningful.** Keeping every eval on the same backend (Colab GPU, where production classification
+> also runs) is what makes the drift series comparable. The app's *Run evaluation* button and
+> `evaluate.py` (without `--snapshot`) are **local diagnostics that do not write to the drift log.**
+
 ### Glitch signal
 
 No run fails silently: each stage records `{ok, ts, …}` (or the error) in `data/health.json`, the app

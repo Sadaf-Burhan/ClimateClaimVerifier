@@ -31,7 +31,6 @@ from climate_verifier.pipeline.evaluate import (
     load_eval_set,
     run_eval,
     compute_metrics,
-    snapshot_metrics,
     load_eval_history,
 )
 from climate_verifier.health import load_health, stage_status, age_hours
@@ -554,8 +553,11 @@ def classification_eval():
                                         llm_batch_size=LLM_BATCH_SIZE)
                 metrics = compute_metrics(eval_results,
                                           claim_recall_target=CLAIM_RECALL_TARGET)
-                snapshot_metrics(metrics, model=MODEL)   # record this run in the drift log
-            st.caption("📈 This run was added to the drift log below.")
+            # Diagnostic only — does NOT write to the drift log. The drift series is populated by
+            # the Colab GPU maintenance pass so every point shares one backend (the classifier is
+            # nondeterministic across GPU/CPU; mixing backends would make the trend meaningless).
+            st.caption("🔬 Local diagnostic run — not added to the drift log (the drift series is "
+                       "produced by the Colab GPU maintenance pass, for backend-comparable numbers).")
 
             claim_m = metrics["per_class"]["claim"]
             asym    = metrics["error_asymmetry"]
