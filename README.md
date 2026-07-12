@@ -520,6 +520,10 @@ turns the sidebar chip 🔴 and shows a red banner, and the one-shot runners exi
 scheduler / Colab cell surfaces the failure. The drift charts are the slower signal — a sustained
 recall decline means the model is degrading.
 
+See **[MONITORING.md](MONITORING.md)** for exactly what each signal measures, what it shows, how to
+read it (including why precision jitters and only recall + sustained trends matter), and the planned
+next steps (dynamic eval-set growth + retrieval-quality evaluation).
+
 ---
 
 ## Week Scope
