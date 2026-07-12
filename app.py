@@ -31,7 +31,10 @@ from climate_verifier.pipeline.evaluate import (
     load_eval_set,
     run_eval,
     compute_metrics,
+    snapshot_metrics,
+    load_eval_history,
 )
+from climate_verifier.health import load_health, stage_status, age_hours
 from climate_verifier.pipeline.embedder import (
     similarity,
     eval_pairs,
@@ -122,6 +125,84 @@ Wording that should make you look closer (these are *cues to check*, not proof o
 None of these make a post false — they mean *verify before you trust or share*. Open the original post
 and the news sources below and judge for yourself.
 """
+
+
+_HEALTH_ICON = {"ok": "🟢", "stale": "🟡", "fail": "🔴"}
+
+
+def _age_label(ts: str) -> str:
+    a = age_hours(ts or "")
+    if a is None:
+        return "?"
+    return f"{a:.0f}h ago" if a < 48 else f"{a/24:.0f}d ago"
+
+
+def _render_health_sidebar():
+    """Compact maintenance-health readout in the sidebar: last outcome + age per stage.
+    Reads data/health.json — written by the local ingestion cycle and the Colab notebook —
+    so a stale corpus or a failed run is visible instead of silently serving old data."""
+    health = load_health()
+    st.sidebar.markdown("**⚙️ Maintenance health**")
+    if not health:
+        st.sidebar.caption("No runs recorded yet.")
+        return
+    for stage in ("ingestion", "classification", "evaluation", "vision"):
+        rec = health.get(stage)
+        if not rec:
+            continue
+        status = stage_status(rec)
+        line = f"{_HEALTH_ICON.get(status, '⚪')} {stage}: {_age_label(rec.get('ts', ''))}"
+        if status == "fail" and rec.get("error"):
+            line += f" — {str(rec['error'])[:38]}"
+        st.sidebar.caption(line)
+
+
+def _render_drift():
+    """Model-drift panel: recall/precision across successive evals + the FN:FP balance.
+    Reads data/eval_history.jsonl (one line per maintenance eval — Colab GPU or local).
+    This is the signal that tells you the classifier is degrading before users feel it."""
+    hist = load_eval_history()
+    if not hist:
+        st.info("📈 **Drift log is empty.** Each evaluation run (the Colab GPU maintenance pass, "
+                "or the button below) appends recall / precision / FN / FP here, so you can watch "
+                "for classifier drift over time.")
+        return
+    df = pd.DataFrame(hist)
+    df["ts"] = pd.to_datetime(df["ts"], errors="coerce", utc=True)
+    df = df.dropna(subset=["ts"]).sort_values("ts")
+    if df.empty:
+        return
+    latest, prev = df.iloc[-1], (df.iloc[-2] if len(df) > 1 else df.iloc[-1])
+    target = float(latest.get("target", CLAIM_RECALL_TARGET) or CLAIM_RECALL_TARGET)
+    multi = len(df) > 1
+
+    st.markdown("#### 📈 Model drift — evaluation history")
+    st.caption(f"Last evaluated **{_age_label(str(latest['ts']))}** on model `{latest.get('model','?')}` "
+               f"· {len(df)} run(s) logged.")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Recall (CLAIM)", f"{latest['recall']:.3f}",
+              delta=f"{latest['recall']-prev['recall']:+.3f}" if multi else None,
+              delta_color="normal")
+    c2.metric("Precision", f"{latest['precision']:.3f}",
+              delta=f"{latest['precision']-prev['precision']:+.3f}" if multi else None)
+    c3.metric("FN / FP", f"{int(latest['false_negatives'])} / {int(latest['false_positives'])}",
+              help="False negatives (missed claims — costly) vs false positives (opinions surfaced — cheap)")
+    c4.metric("Meets target", "✅" if bool(latest.get("meets_target")) else "❌",
+              help=f"recall ≥ {target:.0%}")
+
+    st.line_chart(df.set_index("ts")[["recall", "precision"]])
+    st.caption(f"Recall target ≥ {target:.0%}. A sustained **downward recall** trend is the costly "
+               "drift — real claims dropped at the gate. Precision recovers downstream, so watch recall.")
+    fnfp = df.set_index("ts")[["false_negatives", "false_positives"]].rename(
+        columns={"false_negatives": "FN (missed — costly)", "false_positives": "FP (surfaced — cheap)"})
+    st.bar_chart(fnfp)
+
+    with st.expander("Raw drift log"):
+        cols = ["ts", "model", "recall", "precision", "f1", "accuracy",
+                "false_negatives", "false_positives", "meets_target"]
+        st.dataframe(df[[c for c in cols if c in df.columns]].iloc[::-1],
+                     use_container_width=True, hide_index=True)
+    st.divider()
 
 
 def _render_trust(store, post: dict, classify_first: bool):
@@ -459,6 +540,8 @@ def classification_eval():
         "Accuracy alone hides this asymmetry."
     )
 
+    _render_drift()
+
     if not EVAL_CSV.exists():
         st.warning(f"`{EVAL_CSV}` not found.")
     else:
@@ -469,6 +552,8 @@ def classification_eval():
                                         llm_batch_size=LLM_BATCH_SIZE)
                 metrics = compute_metrics(eval_results,
                                           claim_recall_target=CLAIM_RECALL_TARGET)
+                snapshot_metrics(metrics, model=MODEL)   # record this run in the drift log
+            st.caption("📈 This run was added to the drift log below.")
 
             claim_m = metrics["per_class"]["claim"]
             asym    = metrics["error_asymmetry"]
@@ -850,6 +935,7 @@ def evidence_matching():
 # ═══════════════════════════════════════════════════════════════════════════════
 st.sidebar.title("🌪️ Climate Claim Scanner")
 st.sidebar.caption("Surfaces signals about Bluesky climate posts — *you* judge the post.")
+_render_health_sidebar()
 
 # Page objects — referenced by trust_checker / trust_results for st.switch_page navigation.
 _page_trust = st.Page(trust_checker, title="Trust Checker", icon="🛡️", default=True)

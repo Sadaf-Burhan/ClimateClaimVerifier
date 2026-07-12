@@ -21,6 +21,8 @@ Run from the project root:
 """
 
 import csv
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -28,6 +30,7 @@ import yaml
 from .claim_classifier import classify_batch, LLM_BATCH_SIZE
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
+EVAL_HISTORY_PATH = Path("data/eval_history.jsonl")   # drift log — one JSON line per eval run
 
 
 def load_eval_set(csv_path: str) -> list[dict]:
@@ -135,6 +138,54 @@ def compute_metrics(results: list[dict],
     }
 
 
+def snapshot_metrics(metrics: dict, model: str, path: Path | str = EVAL_HISTORY_PATH,
+                     ts: str | None = None) -> dict:
+    """Append a compact, timestamped eval snapshot to the drift log (JSONL).
+
+    Each maintenance eval (Colab GPU, or a local run) records one line here; the app's
+    Evaluation tab reads them to plot recall/precision over time and the FN:FP balance —
+    the signal that tells you if the classifier is drifting. Pass `ts` to stamp a specific
+    time (else now, UTC)."""
+    claim = metrics["per_class"]["claim"]
+    asym = metrics["error_asymmetry"]
+    rec = {
+        "ts": ts or datetime.now(timezone.utc).isoformat(),
+        "model": model,
+        "n": metrics["n"],
+        "recall": round(claim["recall"], 4),
+        "precision": round(claim["precision"], 4),
+        "f1": round(claim["f1"], 4),
+        "accuracy": round(metrics["accuracy"], 4),
+        "false_negatives": asym["false_negatives"],
+        "false_positives": asym["false_positives"],
+        "fn_rate": round(asym["fn_rate"], 4),
+        "fp_rate": round(asym["fp_rate"], 4),
+        "meets_target": metrics["meets_target"],
+        "target": metrics["claim_recall_target"],
+    }
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps(rec) + "\n")
+    return rec
+
+
+def load_eval_history(path: Path | str = EVAL_HISTORY_PATH) -> list[dict]:
+    """Read the drift log (oldest-first). Returns [] if it doesn't exist yet."""
+    p = Path(path)
+    if not p.exists():
+        return []
+    out = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return out
+
+
 def format_report(metrics: dict) -> str:
     """Plain-text report (ASCII only, safe for any console)."""
     cm = metrics["confusion_matrix"]
@@ -215,12 +266,20 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate the claim classifier on the labeled eval set.")
     parser.add_argument("--model", default=cfg["model"]["name"],
                         help="Ollama model to evaluate (default: model.name from config.yaml)")
-    model = parser.parse_args().model
+    parser.add_argument("--no-snapshot", action="store_true",
+                        help="don't append this run to the drift log (data/eval_history.jsonl)")
+    args = parser.parse_args()
+    model = args.model
 
     rows = load_eval_set(csv_path)
     print(f"Evaluating {model} on {len(rows)} labeled posts from {csv_path} ...")
     results = run_eval(csv_path, model=model, llm_batch_size=llm_batch_size)
-    print(format_report(compute_metrics(results, claim_recall_target=target)))
+    metrics = compute_metrics(results, claim_recall_target=target)
+    print(format_report(metrics))
+    if not args.no_snapshot:
+        rec = snapshot_metrics(metrics, model=model)
+        print(f"\nDrift log updated: {EVAL_HISTORY_PATH} (recall {rec['recall']}, "
+              f"precision {rec['precision']}, FN/FP {rec['false_negatives']}/{rec['false_positives']}).")
 
 
 if __name__ == "__main__":

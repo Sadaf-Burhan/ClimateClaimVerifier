@@ -20,6 +20,7 @@ from climate_verifier.ingestion.gdelt import fetch_articles
 from climate_verifier.ingestion.store import save, hours_since_last_ingestion, set_last_ingestion_time
 from climate_verifier.pipeline.topic_filter import filter_posts
 from climate_verifier.pipeline.geo import extract_location
+from climate_verifier.health import update_health
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
 
@@ -219,25 +220,32 @@ def run_ingestion_cycle(sources=None, force=False):
     total         = 0
     total_dropped = 0
 
-    for kw, category in keywords:
-        if "bluesky" in sources:
-            print(f"  [{category}] Bluesky → '{kw}'")
-            posts = fetch_posts(kw, limit=bsky_lim, since=since)
-            for p in posts:
-                p["keyword_category"] = category
-            posts, dropped = filter_posts(posts)
-            total_dropped += dropped
-            total += save(posts, db_path)
+    try:
+        for kw, category in keywords:
+            if "bluesky" in sources:
+                print(f"  [{category}] Bluesky → '{kw}'")
+                posts = fetch_posts(kw, limit=bsky_lim, since=since)
+                for p in posts:
+                    p["keyword_category"] = category
+                posts, dropped = filter_posts(posts)
+                total_dropped += dropped
+                total += save(posts, db_path)
 
-        if "gdelt" in sources:
-            print(f"  [{category}] GDELT   → '{kw}'")
-            articles = fetch_articles(kw, days_back=gdelt_days,
-                                      delay=gdelt_del, retries=gdelt_ret)
-            for a in articles:
-                a["keyword_category"] = category
-            articles, dropped = filter_posts(articles)
-            total_dropped += dropped
-            total += save(articles, db_path)
+            if "gdelt" in sources:
+                print(f"  [{category}] GDELT   → '{kw}'")
+                articles = fetch_articles(kw, days_back=gdelt_days,
+                                          delay=gdelt_del, retries=gdelt_ret)
+                for a in articles:
+                    a["keyword_category"] = category
+                articles, dropped = filter_posts(articles)
+                total_dropped += dropped
+                total += save(articles, db_path)
+    except Exception as e:
+        # record the glitch so the app's health banner turns red, then re-raise so the
+        # OS scheduler / CI sees a non-zero exit and fires its own failure alert
+        update_health("ingestion", ok=False, sources=sources, error=f"{type(e).__name__}: {e}",
+                      saved_before_error=total)
+        raise
 
     # ── Demand-driven evidence top-up ─────────────────────────────────────────
     # Let the accumulated CLAIMS' topics+regions pull targeted GDELT news, so the corpus
@@ -260,8 +268,10 @@ def run_ingestion_cycle(sources=None, force=False):
         except Exception as e:
             print(f"  Evidence top-up skipped: {e}")
 
-    # ── Record completion time ────────────────────────────────────────────────
+    # ── Record completion time + health heartbeat ─────────────────────────────
     set_last_ingestion_time(db_path)
+    update_health("ingestion", ok=True, sources=sources,
+                  counts={"saved": total, "dropped": total_dropped})
     print(
         f"  Done — {total} new records saved, "
         f"{total_dropped} irrelevant posts dropped "
@@ -276,10 +286,23 @@ if __name__ == "__main__":
                         help="demand-driven GDELT top-up: let the stored claims' topic+location "
                              "drive what news we fetch (>=2 / <=100 per topic, never expired)")
     parser.add_argument("--days-back", type=int, default=None, help="override GDELT window for --topup")
+    parser.add_argument("--once", action="store_true",
+                        help="run ONE ingestion cycle and exit (for an OS scheduler / cron); "
+                             "exits non-zero on failure so the scheduler's alert fires")
+    parser.add_argument("--force", action="store_true", help="bypass the 24h interval guard")
     args = parser.parse_args()
 
     cfg      = load_config()
     ing      = cfg["ingestion"]
+
+    if args.once:
+        import sys
+        try:
+            run_ingestion_cycle(force=args.force)
+        except Exception as e:
+            print(f"Ingestion cycle FAILED: {type(e).__name__}: {e}")
+            sys.exit(1)          # non-zero → OS scheduler / CI raises its own failure alert
+        raise SystemExit(0)
 
     if args.topup:
         topup_evidence_for_claims(
