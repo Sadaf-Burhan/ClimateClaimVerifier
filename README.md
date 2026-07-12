@@ -377,7 +377,77 @@ Single source of truth. All parameters — model names, ingestion intervals, key
 
 ---
 
-## Running the Project
+## Full End-to-End Run
+
+Run the whole pipeline once — **ingest → Colab GPU (classify · vision · evaluate) → app** — so data
+flows through every stage and accumulates. Each cycle only *adds* (INSERT OR IGNORE; nothing is wiped),
+so repeating this grows the corpus.
+
+### Step 0 — One-time setup
+
+```bash
+uv sync                                   # install dependencies
+# create .env in the project root with your Bluesky app password:
+#   BLUESKY_HANDLE=you.bsky.social
+#   BLUESKY_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+ollama serve && ollama pull qwen2.5:3b    # local Ollama — used by the Trust Checker
+```
+
+### Step 1 — Local ingestion (CPU, no GPU)
+
+```bash
+uv run python -m climate_verifier.ingestion.scheduler --once --force
+```
+
+Fetches Bluesky + GDELT, filters, saves, runs the **demand-driven evidence top-up** (claims' topic+region
+pull targeted news), rebuilds the evidence index, and writes an `ingestion` health heartbeat. `--force`
+skips the 24h guard for this first run. *(The top-up enriches evidence for whatever claims already exist;
+on a brand-new DB it fills in after Step 3 classifies the first batch — run Step 1 again to top it up.)*
+
+Verify it grew:
+
+```bash
+uv run python -c "import sqlite3; c=sqlite3.connect('data/ingested.db'); print(dict(c.execute(\"SELECT source, COUNT(*) FROM posts GROUP BY source\").fetchall()))"
+```
+
+### Step 2 — Hand the DB to Colab
+
+Copy `data/ingested.db` into your Google Drive sync folder (the `DRIVE_DIR` you'll set in the notebook).
+
+### Step 3 — Colab GPU maintenance (`classify → vision → reindex → evaluate`)
+
+Open **[`notebooks/colab_daily_maintenance.ipynb`](notebooks/colab_daily_maintenance.ipynb)** in Google
+Colab (Runtime → GPU), set `DRIVE_DIR` in Step 5 of the notebook, then **Runtime → Run all**. It:
+classifies pending Bluesky posts, runs gated vision on edge-case images, rebuilds the evidence index,
+evaluates the classifier + appends a **drift snapshot**, and exports `ingested.db`,
+`eval_history.jsonl`, `health.json`, and `chroma_evidence/` back to Drive.
+
+### Step 4 — Pull the results back
+
+Copy those four exported items from `DRIVE_DIR` into the project's `data/`, overwriting the local copies.
+
+### Step 5 — Run the scanner and verify
+
+```bash
+uv run streamlit run app.py               # → http://localhost:8501
+```
+
+Check: sidebar **health chips** are 🟢, the **Evaluation** tab shows the **drift charts** (recall/precision +
+FN:FP), and the **Trust Checker** returns signals + region-aware news for a pasted Bluesky post.
+
+### Step 6 — Ongoing cadence
+
+| Cadence | Command / action | Where |
+|---|---|---|
+| **Daily** | `python -m climate_verifier.ingestion.scheduler --once` (via Task Scheduler / cron) | Local, CPU |
+| **2–3×/week** | Run `colab_daily_maintenance.ipynb`, then pull `data/` back | Colab, GPU |
+| **Anytime** | `uv run streamlit run app.py` | Local |
+
+Repeat Steps 1→4 to accumulate more data; the drift chart gains a point each evaluation.
+
+---
+
+## Running the Project — the two layers
 
 The system runs as **two layers**: an **external-facing scanner** (the app the user opens) and an
 **in-house maintenance** layer that keeps the data fresh. They are decoupled — the app only ever
