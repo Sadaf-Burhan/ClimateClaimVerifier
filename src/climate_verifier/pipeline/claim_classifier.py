@@ -295,12 +295,15 @@ def classify_pending(db_path: str, model: str, batch_size: int = 50,
     conn.row_factory = sqlite3.Row
     _ensure_tables(conn)
 
-    # Fetch posts that have not been classified yet
+    # Fetch Bluesky posts that have not been classified yet. Only social posts are
+    # classified — GDELT articles are the EVIDENCE corpus (retrieved, never labeled
+    # claim/opinion); without this guard the demand-driven top-up's news articles would
+    # be misclassified and inflate the claim counts.
     rows = conn.execute("""
         SELECT p.post_id, p.text, p.likes, p.reposts, p.replies, p.quotes
         FROM posts p
         LEFT JOIN classifications c ON p.post_id = c.post_id
-        WHERE c.post_id IS NULL
+        WHERE c.post_id IS NULL AND p.source = 'bluesky'
         LIMIT ?
     """, (batch_size,)).fetchall()
 
@@ -393,11 +396,17 @@ def get_stats(db_path: str) -> dict:
     stats = {}
     try:
         stats["total_ingested"]   = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
+        # only Bluesky posts are classifiable; GDELT rows are the evidence corpus
+        stats["total_classifiable"] = conn.execute(
+            "SELECT COUNT(*) FROM posts WHERE source = 'bluesky'").fetchone()[0]
+        stats["total_evidence"]   = conn.execute(
+            "SELECT COUNT(*) FROM posts WHERE source = 'gdelt'").fetchone()[0]
         stats["total_classified"] = conn.execute("SELECT COUNT(*) FROM classifications").fetchone()[0]
         stats["total_claims"]     = conn.execute("SELECT COUNT(*) FROM classifications WHERE has_claim=1").fetchone()[0]
         stats["total_opinions"]   = conn.execute("SELECT COUNT(*) FROM classifications WHERE has_claim=0").fetchone()[0]
     except Exception:
-        stats = {"total_ingested": 0, "total_classified": 0, "total_claims": 0, "total_opinions": 0}
+        stats = {"total_ingested": 0, "total_classifiable": 0, "total_evidence": 0,
+                 "total_classified": 0, "total_claims": 0, "total_opinions": 0}
     conn.close()
     return stats
 

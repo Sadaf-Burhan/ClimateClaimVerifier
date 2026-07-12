@@ -421,12 +421,14 @@ def classification_eval():
 
     st.divider()
 
-    # Pipeline stats
+    # Pipeline stats. Only Bluesky posts are classifiable; GDELT rows are the evidence
+    # corpus (retrieved, never labeled), so "pending" is over the Bluesky pool, not all posts.
     stats   = get_stats(DB_PATH)
-    pending = stats["total_ingested"] - stats["total_classified"]
+    pending = max(0, stats.get("total_classifiable", 0) - stats["total_classified"])
 
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("📥 Total Ingested",    stats["total_ingested"])
+    col1.metric("📥 Bluesky posts",     stats.get("total_classifiable", 0),
+                help=f"{stats.get('total_evidence', 0)} GDELT news articles are held separately as the evidence corpus.")
     col2.metric("🔍 Classified",        stats["total_classified"])
     col3.metric("✅ Claims Found",      stats["total_claims"])
     col4.metric("💬 Opinions Rejected", stats["total_opinions"])
