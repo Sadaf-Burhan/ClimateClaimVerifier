@@ -38,6 +38,7 @@ from climate_verifier.pipeline.embedder import (
     category_similarity_stats,
 )
 from climate_verifier.pipeline.evidence import get_store, assess_claim, assess_db_claims
+from climate_verifier.ingestion.bluesky import fetch_post_by_url
 from climate_verifier.ingestion.store import get_last_ingestion_time, hours_since_last_ingestion
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -220,24 +221,30 @@ def trust_checker():
 
     tab_paste, tab_list = st.tabs(["📋 Paste a post", "🏆 Pick from top posts"])
 
-    # ── Mode 1 — paste one specific Bluesky post ──
+    # ── Mode 1 — paste the LINK of a Bluesky post; we fetch its metadata ──
     with tab_paste:
-        nt = st.text_area("Paste a **Bluesky** post (its text, or a `bsky.app` link) — Bluesky only",
-                          key="tc_nt", height=110,
-                          placeholder="Paste a Bluesky post here… (not Facebook, X, Instagram, etc.)")
-        neng = st.number_input("Reach (likes + reposts + replies + quotes)", min_value=0, value=0, key="tc_ne")
+        link = st.text_input("Paste the **bsky.app link** of the post you want assessed",
+                             key="tc_link",
+                             placeholder="https://bsky.app/profile/…/post/…   (Bluesky only)")
+        st.caption("Paste the link — the scanner fetches the post's text, engagement, author and image "
+                   "straight from Bluesky. Nothing to type by hand.")
         if st.button("View results ▸", type="primary", key="tc_paste_go"):
-            other = _non_bluesky_url(nt)
+            other = _non_bluesky_url(link)
             if other:
                 st.error(f"That looks like a **{other.capitalize()}** link. This scanner works on "
-                         "**Bluesky posts only** — paste a Bluesky post, or its `bsky.app` link.")
-            elif not nt.strip():
-                st.warning("Paste a post first.")
+                         "**Bluesky posts only** — paste a Bluesky post link (bsky.app/…).")
+            elif "bsky.app" not in link.lower() and not link.strip().startswith("at://"):
+                st.warning("Paste a Bluesky post link, e.g. `https://bsky.app/profile/…/post/…`")
             else:
-                st.session_state["tc_result"] = {"posts": [
-                    {"text": nt, "engagement": int(neng), "source": "bluesky",
-                     "author": "", "classify_first": True}]}
-                st.switch_page(_page_results)
+                with st.spinner("Fetching the post from Bluesky…"):
+                    post = fetch_post_by_url(link.strip())
+                if not post:
+                    st.error("Couldn't fetch that post — check it's a valid, public Bluesky post link.")
+                else:
+                    post["engagement"] = post["likes"] + post["reposts"] + post["replies"] + post["quotes"]
+                    post["classify_first"] = True
+                    st.session_state["tc_result"] = {"posts": [post]}
+                    st.switch_page(_page_results)
 
     # ── Mode 2 — pick one, many, or all from the day's top posts ──
     with tab_list:
