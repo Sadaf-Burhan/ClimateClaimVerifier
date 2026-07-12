@@ -8,6 +8,7 @@ Requires BLUESKY_HANDLE and BLUESKY_APP_PASSWORD in .env
 """
 
 import os
+import re
 import requests as _requests
 from datetime import datetime, timezone
 from atproto import Client
@@ -199,6 +200,65 @@ def fetch_posts(keyword: str, limit: int, since: str | None = None) -> list[dict
             **_extract_embed(getattr(post, "embed", None)),
         })
     return posts
+
+
+def _url_to_at_uri(client: Client, url: str) -> str | None:
+    """Convert a bsky.app post URL to an at:// URI. Resolves a handle to a DID if needed."""
+    url = (url or "").strip()
+    if url.startswith("at://"):
+        return url
+    m = re.search(r"bsky\.app/profile/([^/]+)/post/([^/?#\s]+)", url)
+    if not m:
+        return None
+    actor, rkey = m.group(1), m.group(2)
+    did = actor
+    if not actor.startswith("did:"):
+        try:
+            did = client.com.atproto.identity.resolve_handle({"handle": actor}).did
+        except Exception:
+            return None
+    return f"at://{did}/app.bsky.feed.post/{rkey}"
+
+
+def fetch_post_by_url(url: str) -> dict | None:
+    """
+    Fetch a SINGLE Bluesky post by its bsky.app URL (or at:// URI) and return the same
+    normalized dict shape as fetch_posts — text, engagement counts, author + follower/profile
+    signals, and any image/reshare/external embed. Lets the app auto-populate a pasted post's
+    metadata instead of asking the user to type likes/reposts by hand. None if it can't resolve.
+    """
+    client = _get_client()
+    at_uri = _url_to_at_uri(client, url)
+    if not at_uri:
+        return None
+    try:
+        resp = client.app.bsky.feed.get_posts({"uris": [at_uri]})
+        posts = getattr(resp, "posts", None) or []
+        if not posts:
+            return None
+        post = posts[0]
+        pr = _batch_profiles(client, [post.author.did]).get(post.author.did, dict(_EMPTY_PROFILE))
+        return {
+            "source":            "bluesky",
+            "keyword":           "",
+            "keyword_category":  "user_submitted",
+            "post_id":           post.uri,
+            "author":            post.author.handle,
+            "author_followers":  pr["followers"],
+            "author_bio":        pr["bio"],
+            "author_post_count": pr["posts_count"],
+            "author_created_at": pr["created_at"],
+            "text":              getattr(post.record, "text", "") or "",
+            "created_at":        getattr(post.record, "created_at", "") or "",
+            "likes":             post.like_count or 0,
+            "reposts":           post.repost_count or 0,
+            "replies":           post.reply_count or 0,
+            "quotes":            post.quote_count or 0,
+            "ingested_at":       datetime.now(timezone.utc).isoformat(),
+            **_extract_embed(getattr(post, "embed", None)),
+        }
+    except Exception:
+        return None
 
 
 def fetch_trending_topics() -> list[str]:
