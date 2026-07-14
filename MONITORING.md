@@ -83,6 +83,17 @@ diagnostics that do not write the drift log.**
    append them to `claim_eval.csv`, so the drift chart becomes a true **concept-drift** detector
    (framing shifts, new phenomena) — not only a regression guard against model/env changes.
 
+   **Evidence-nominated relabel candidates (active-learning selection).** Rather than sample at random,
+   target the boundary cases the pipeline already flags. Chief signal: a post classified **OPINION but
+   with a STRONG evidence match** (HIGH corroboration tier and/or a credible cited source on a specific
+   event) is a likely **false negative** — a claim the classifier missed. Surface these in a small
+   **relabel queue**; a human confirms/rejects; confirmed corrections append to the benchmark.
+   **Guardrail: evidence *nominates*, a human *disposes* — it never auto-relabels.** A strong headline
+   match is topic-similarity, not proof the post is a claim, so evidence *feeds* the label through a
+   verified human loop; it must not override the classifier at runtime. This is hard-example mining: the
+   benchmark grows toward the exact boundary the classifier struggles with (the recall-first precision
+   ceiling), so the drift chart tracks the cases that matter.
+
 2. **Retrieval-quality evaluation.** Measure how well the Week-6 RAG evidence layer returns *relevant*
    GDELT news for a claim (e.g. labeled claim → expected-article pairs, precision@k / relevance), so a
    degrading retrieval layer is caught before users notice — currently unmeasured.
