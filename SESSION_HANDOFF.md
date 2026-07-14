@@ -1,125 +1,109 @@
-# Session Handoff — ClimateClaimVerifier (Week 7–8 work)
+# Session Handoff — ClimateClaimVerifier (updated 2026-07-14)
 
-Read this first to continue without re-deriving. Project = a **reader-signal scanner** for **Bluesky**
-climate/extreme-weather posts: surfaces signals (claim/opinion, news corroboration, source, reach,
-vision), **never a true/false verdict**. Recall-first classifier; precision recovered downstream.
+Read this first to continue in a fresh session without re-deriving. This supersedes the earlier
+handoff. Companion docs: `WEEK7_STATUS.md` (Week-7 design pointers), `MONITORING.md` (the
+monitoring/eval layer), and the auto-memory index (`memory/MEMORY.md`).
+
+**Project =** a *reader-signal scanner* for **Bluesky** climate/extreme-weather posts. It surfaces
+signals (claim vs opinion, independent news corroboration, source, reach, image nature) and a
+**reach-vs-support red flag** — it **never** asserts true/false. Recall-first classifier; precision
+recovered downstream by evidence + source signals.
 
 ---
 
-## 1. Git / branch state (CRITICAL)
-- **All work is on branch `multimodal-edge-gating`.** `main` is FROZEN at `6be4a62` (reshare-provenance) — do NOT touch main; merge only when the user says so.
-- **The user has uncommitted app.py edits stashed** → `git stash@{0}` ("WIP on multimodal-edge-gating"). Don't blow it away; `git stash pop` if they ask.
-- Remote: `github.com/Sadaf-Burhan/ClimateClaimVerifier` (PUBLIC). Branch is pushed.
-- **Every push MUST run a secret scan first** (repo is public, `.env` has real creds): grep the diff for
-  the Bluesky app-password fragment, GitHub token prefixes, and app-password assignment lines.
-  Keep any literal secret pattern OUT of committed files — use it only in the throwaway grep command.
-- **SECURITY:** `.env` holds real Bluesky creds (handle + app password) — gitignored, NEVER commit/echo it.
-  User was advised to **rotate** the app password (it was pasted in an earlier chat).
+## 0. Immediate next step
+**Build the Week-7 image-input path** (§7 below — fully specced). Before that, the user planned to
+run the overnight ingestion from their own VS Code terminal:
+`uv run python -m climate_verifier.ingestion.scheduler --once --force` (keep the machine awake), then
+push `data/ingested.db` to Drive and run the Colab classification pass.
 
-## 2. Data / environment state
-- **`data/ingested.db`** = the shakeout: **745 bluesky + 284 gdelt** posts, all classified, **114 vision
-  signals**. New schema (media/reshare/profile/vision columns).
-- **`data/ingested_backup_premultimodal.db`** = the ORIGINAL corpus (4598 posts) — preserved, gitignored.
-- **`data/chroma_evidence`** = ChromaDB index, **284 GDELT articles** (clean, headline-only). Rebuild:
-  `uv run python -m climate_verifier.pipeline.evidence --build`.
-- Ollama LOCAL has `qwen2.5:3b` (classifier), NOT `qwen2.5vl` (vision runs on Colab GPU only).
-- **Windows quirks:** Streamlit's `WinError 10054` traceback is harmless; Ctrl+C often won't stop it —
-  kill by port: `Get-NetTCPConnection -LocalPort 8501 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }`.
-  File watcher is OFF (`.streamlit/config.toml` `fileWatcherType="none"` — silences torchvision noise),
-  so **module edits need a full Streamlit restart**; app.py-only edits need a manual Rerun/refresh.
+## 1. Git / branch / data state
+- **Branch `multimodal-edge-gating`** — all work here, pushed to `github.com/Sadaf-Burhan/ClimateClaimVerifier` (PUBLIC). `main` is frozen; merge only when the user says so.
+- **Uncommitted** (as of writing): `.env.example` (safe template, placeholders only — user hasn't decided to commit it), a `.gitignore` `!​.env.example` exception, minor `README.md` line-ending, and **`data/claim_eval.csv`** (may contain a real admin relabel row appended via the app — review before committing).
+- **SECURITY:** `.env` holds REAL secrets — `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`, `ADMIN_PASSWORD`. It is gitignored and NOT tracked. **NEVER commit or echo it.** Every push: grep the staged diff for secret patterns first.
+- **Data:** `data/ingested.db` = **2030 bluesky + 3195 gdelt**, 1339 classified (≈691 bluesky pending → next Colab classify). `data/chroma_evidence` = the evidence index. `data/eval_history.jsonl` (drift), `data/health.json` (stage heartbeats) — both gitignored runtime artifacts.
+- **Models:** local Ollama has `qwen2.5:3b` (classifier). `qwen2.5vl:7b` (vision) runs on **Colab GPU only**.
 
-## 3. Architecture (as-built)
-Ingest (Bluesky + GDELT) → topic filter (NA climate/wx) → **classify single-post** (`qwen2.5:3b`,
-`llm_batch_size:1`, recall 0.938 / precision ~0.70) → **evidence matching** (ChromaDB dense retrieve →
-LLM corroboration re-rank) + source/reach/self-citation/official/reshare signals → **gated vision** on
-edge cases → **reader signal + red flag** → **Trust Checker** dashboard.
-- **Two RAG layers (don't confuse):** Week 3 few-shot retriever (`retrieval/vector_store.py`,
-  metadata-narrowed via `where`) vs **Week 6 evidence retriever** (`evidence.py:evidence_for_claim`,
-  a PLAIN dense query `collection.query(query_texts=[claim_text])` — NO metadata narrowing). The Week 6
-  one is what we're improving.
+## 2. Two-layer architecture (as built)
+- **🔧 In-house maintenance:** (a) **local daily ingestion** — Bluesky+GDELT → topic-filter → save → **demand-driven evidence top-up** → index rebuild → **corpus refresher** (all network/CPU, no GPU); (b) **Colab GPU maintenance** (`climate_verifier.maintenance --all`) — classify → vision → reindex → evaluate → export results back to Drive.
+- **🌐 External-facing scanner:** the Streamlit app — Trust Checker + Results (users), Course demos, and an **authenticated Maintenance tab** (admin).
+- The app only *reads* `data/`; maintenance *writes* it. Classification/eval run on **Colab GPU** (local CPU too slow); the app never classifies in bulk.
 
-## 4. Key findings (established — don't relitigate)
-- **Config beats model:** single-post inference lifted recall 0.750→0.938; classifier precision ~0.70 is
-  a design ceiling (Week 4 prompts + Week 5 LoRA couldn't beat it). Precision is recovered downstream.
-- **LoRA (Week 5): negative result** — no ratio hit recall≥0.90 AND precision≥0.85; adapter is demo-only.
-- **Vision (Week 7): validated but ~1% coverage** — the WebP→JPEG fix was the real bug (Bluesky serves
-  WebP, Ollama can't decode it → blank images). On 745 posts it changed exactly 1 red flag. Corroboration
-  is the precision workhorse; vision is a low-coverage supplement. NOT merged; accumulating data to re-measure.
-- **Ingestion scope:** keep weather posts (they're the corroboration corpus); the forecast wording handles
-  future events. (Decided: keep as-is.)
+## 3. Everything built THIS session (with commits, newest→oldest)
+**Region-aware evidence retrieval & ingestion**
+- `f802c06` region-aware retrieval — new `pipeline/geo.py` derives `"Region, Country"` (headline place-names, else domain/ccTLD); `build_index` embeds location INTO each GDELT doc; `evidence_for_claim` folds the claim's location into the query. LLM re-rank made optional (`use_llm_rerank`, default OFF) with `retrieval_only_verdict`.
+- `6fddfe7` demand-driven GDELT top-up — `scheduler.topup_evidence_for_claims()`: each claim's (region, subject) drives targeted GDELT queries; no count cap; `max_article_age_days` recency guard; fail-fast timeout.
+- `9af825d` region-aware fixes — `geo` now reads **state/province abbreviations** in location context (`[AZ]`, `City, TX`; ambiguous IN/OR/ME/HI/OK/ON/OH only when bracketed); **region-mismatch demotion**: claim region + all matches from OTHER regions → demote TOPIC MATCH→NO MATCH ("covers the topic but from Pennsylvania/Tennessee — not Arizona").
 
-## 5. What shipped this session (on the branch)
-- Corroboration guardrails (grounding/no-truth/citation/scoped-none); red-flag guards: **self-citation,
-  official-source allowlist (incl. `nws-bot.us`, `weather.im`), reshare-of-official**.
-- GDELT date fix (`_iso_date`); **single-post classifier default** (removed batch-16 landmine).
-- **Multimodal branch:** `store.py` schema (media/reshare/profile/vision cols), `bluesky.py`
-  `_extract_embed`+`_batch_profiles`+**`fetch_post_by_url`**, `vision.py` (gate all categories, WebP→JPEG,
-  analyze), vision→reader-signal wiring, `config.yaml` vision block.
-- **Source-selectable ingestion:** `run_ingestion_cycle(sources=[...], force=...)` — GDELT throttles on
-  Colab's IP, so run **GDELT locally / Bluesky+classify+vision on Colab GPU**, merge via Drive.
-- **Colab notebook** `notebooks/colab_shakeout_pipeline.ipynb` (hardened).
-- **Dashboard overhaul (`app.py`):** `st.navigation` sidebar — **Scanner** (Trust Checker + Results) vs
-  **Course demos** (Classification Evaluation, Embedding, Base-vs-Adapter, Evidence Matching). Dropped
-  "Week N" labels. Trust Checker: bullet summary + red-flag guide up top; **two entry modes** (paste a
-  bsky.app link → auto-fetch metadata via `fetch_post_by_url`; OR filter+multiselect one/many/all top
-  posts) → **"View results"** → dedicated **Results page** (signal-first BOLD bullets → sources with the
-  similarity number EXPLAINED). Bluesky-only guard on paste. Sort (engagement/followers/recent) + count
-  slider. **`looks_like_forecast()`** adds future-event wording.
-- **Docs on branch:** `MULTIMODAL_REBUILD_PLAN.md`, `FINAL_SYSTEM_DESIGN.md`, `course_journey.md` (v2,
-  spec-grounded), `PROJECT_JOURNEY.md` (v1 — user comparing the two, hasn't finalized).
+**Reader-signal / verdict UX (many nuance fixes — see §6)**
+- `84cb096` eyewitness reframe (`looks_like_eyewitness`, conspiracy-guarded) + wired top-up into the autonomous cycle.
+- `47de569` self-cited posts lead with their own credible source, not "None retrieved"; de-jargoned the verdict line.
+- `b65f237` retrieved-news header adapts to verdict (no "NONE + a list" contradiction).
+- `f995fda` full clickable article URL, **TOPIC MATCH** label (not "PARTIAL"), "← closest match" (not "cited").
+- `e41a258` **decoupled the display verdict from the red flag** (`news_status` REPORTED/TOPIC MATCH/NO MATCH) + runtime **"🔎 possibly a missed claim"** callout on opinions (strong evidence/official/credible-cite only).
+- `e746add` **TOPIC MATCH needs a real bar** (`evidence.topic_proximity: 0.50`) — a 0.42 neighbour reads as NO MATCH, not a topic match.
+- `818dad9`/`f7366af` truncated-link fix (`_linkify_post` rewrites Bluesky's truncated in-text URL to the full embed URL) + `import re`.
+- `e97c539` embed-citation credit (a post linking Guardian counts as a credible cite), relevance floor, geo US, bullet formatting (bold only the label).
 
-## 6. Assignment (Week 6 RAG) — answers compiled but NOT yet saved to a file
-User wants `week6_assignment_answers.md` for their partner. Answers drafted in chat: **Q1** (what info
-helps — Thwaites), **Q2** (pre-compute vs retrieve), **Q3** (what completed), **Q3.5** (UI: two entry
-modes, signal-first, Bluesky-only), **Q4** (short structured vs long text; chunking), **Q5** (which 3 of
-10; hard-filter recency generously, NOT category/domain), **Q6** (correct retrieval; Belle Union tornado
-example; "none" is a valid success), **Q7** (source-reputation from corroboration track record — Layer 1
-analog), **Q8** (behavior/provenance > self-report; casualness is a trap), **Q9** (24h autonomous ingest;
-INSERT OR IGNORE + upsert, not wipe; GDELT is the source). → Offer to save these.
+**Monitoring / evaluation layer (Module 8)**
+- `06d03b8` `snapshot_metrics`/`load_eval_history` → `data/eval_history.jsonl`; drift charts; new `climate_verifier/health.py` heartbeats → `data/health.json`; `--once` daily runner.
+- `9e43460` new `climate_verifier/maintenance.py` (classify→vision→reindex→evaluate) + `notebooks/colab_daily_maintenance.ipynb`.
+- `f59574e` eval standardized on **Colab GPU** (app/CLI eval are local diagnostics, don't write the drift log — classifier is nondeterministic across GPU/CPU).
+- `15b3aaf` `MONITORING.md`; `ca67270` README **Full End-to-End Run** runbook.
+- `6ae6d80` replaced the local "Run Classifier" button with a **Colab-classification status checker**.
+- `138ded6` classify **only Bluesky** posts (never the GDELT evidence corpus).
+- `5c435d9` **static eval → Maintenance tab; drift → Evaluation tab** (drift shows benchmark size `n` growing = true concept drift).
 
-## 7. WHERE WE LEFT OFF — region-aware evidence retrieval (NOT yet built)
-The BC post pulled UK wildfire articles (region mismatch). Week 6 retriever is a plain dense query (no
-region/time awareness). **Agreed direction (user's, better than my first re-rank idea):** strengthen
-retrieval at the source with metadata, not a post-hoc re-rank.
+**Corpus refresher & admin relabel loop**
+- `87c76fe` corpus refresher (end of each cycle): age-expire Bluesky posts > `retention_days` (14) + availability-sweep (remove posts deleted on Bluesky, fail-safe on API error). Never touches GDELT/eval-train. `--refresh [--dry-run]`.
+- `d7ec5e5` **Maintenance tab** (auth via `ADMIN_PASSWORD`): evidence-nominated **relabel queue**. `pipeline/relabel.py` — nominate opinions-that-look-like-claims (official/credible-cite/REPORTED) + claims-with-no-evidence; a relabel writes TWO stores: `classifications.admin_label` override (users see it, via COALESCE in `_load_posts`) **and** appends to `claim_eval.csv`.
+- `7d4a6d1` relabel `post_type` "thought" from a **fresh-loaded dropdown** + add-new + notes + inline taxonomy guide.
+- `569efe1` relabel UX — actions keep the queue in place + inline "done" note (no rescan/reset).
 
-**GDELT capture today (`gdelt.py`):** url→post_id (sourcelink), domain→author, title→text, seendate→date.
-NOT captured: `sourcecountry` (available from GDELT DOC API, just dropped).
+## 4. Key design decisions & nuances — DO NOT relitigate
+- **Recall-first classifier; precision recovered downstream.** ~0.70 precision is a design ceiling (Week-4 prompts + Week-5 LoRA couldn't beat it). Classifier is **nondeterministic even at temp 0** (0.687↔0.697 back-to-back) — precision jitters ±several pts, more across GPU/CPU; **watch recall + sustained trends**, not single points.
+- **Evaluation uses a FROZEN labeled CSV, independent of ingested data** — ingesting more never changes eval numbers. The drift layer catches model/env regressions; **true concept drift** needs the *growing* benchmark (relabel loop).
+- **Evidence is HEADLINE-ONLY** (GDELT titles, no bodies). So retrieval/verdict operate at *related coverage* + *reach-vs-support*, NOT claim support. This caps everything — a headline can't verify a proposition. Documented in README "Limitations & Future Extensions".
+- **Verdict vocabulary (user-facing, `news_status`):** REPORTED (LLM-rerank corroborated) / **TOPIC MATCH** (proximity ≥ `topic_proximity` 0.50, same subject) / **NO MATCH** (below bar, or region-mismatch, or only weak neighbours). A **topic match is NOT claim support** — the UI says so everywhere.
+- **Red flag is decoupled from the display verdict** — it stays on the strict `corroboration.verdict` (only strong/HIGH counts as support), so a conspiracy post can show TOPIC MATCH *and* a red flag. Red flag is NOT raised for: official sources, credible self-citations (incl. embed `external_url`), real-photo vision saves, eyewitness observations, forecasts.
+- **Reframes (parallel heuristics in `build_reader_signal`):** `looks_like_forecast` (future warning), `looks_like_eyewitness` (first-person local observation, conspiracy-guarded). Both suppress the red flag and reframe.
+- **LLM ranker deferred to an agentic extension** — full body-fetch/rerank is its own project (bot walls). Region/entity mismatches are handled deterministically (cheaper). The `use_llm_rerank` toggle remains for same-region-different-event cases (best on Colab GPU).
 
-**ChromaDB reality:** dense similarity on the embedded document + a HARD `where` metadata filter
-(exact/range) — no soft weighting. So:
-- **Location → embed it INTO the document** (index `headline + location`; embed claim + its location) so
-  dense retrieval prefers same-region. SOFT — avoids over-pruning. (Hard `where` location filter would
-  wrongly drop a US outlet covering BC fires; location is best-effort anyway.)
-- **Time → hard `where` date-window filter** (reliable). Needs a **numeric `date_int` (YYYYMMDD)** field.
-- **LLM re-rank → make OPTIONAL** (`config vision/evidence: use_llm_rerank`), since strong retrieval
-  reduces its need; its only unique job was "same specific event vs same region+time+topic different event."
+## 5. WEEK 7 DESIGN — image-input path (READY TO BUILD, the next task)
+Goal: let a user **upload a screenshot** of a climate claim (off-Bluesky content — X/FB/IG/WhatsApp, infographics, memes), extract structured text, and run the **unchanged** pipeline. See `WEEK7_STATUS.md` §Design and the Q1–Q7 reasoning.
 
-**PLANNED BUILD (awaiting final user confirm + re-rank default off/on):**
-1. Enrich GDELT index: embed `headline + location`; store metadata `{sourcelink(url), domain,
-   sourcecountry, location, date, date_int, category}`. Derive `location` from domain + headline place-names
-   for existing articles (re-index, no re-fetch); capture `sourcecountry` going forward. Rebuild ChromaDB.
-2. Metadata-aware query in `evidence_for_claim`: embed claim + extracted location; add `where` date-window.
-3. `use_llm_rerank` config flag.
+- **Problem-statement expansion (Answer A):** from "Bluesky scanner" → "scanner for climate claims a person encounters anywhere." Bluesky link stays the full-fidelity path; screenshot is a **degraded-fidelity, clearly-labelled** coverage path.
+- **`extract_from_image(image)` → JSON schema:** `claim_text`, `has_readable_text`, `image_type` (real_photo/meme_or_cartoon/synthetic_ai/screenshot/chart_infographic), `depicts_claim` (yes/partial/no), `author_handle`, `platform`, `engagement {likes,reposts,replies}`, `visible_citation`, `description`.
+  - **RULES:** transcribe `claim_text`/`author_handle`/`engagement` LITERALLY (null if not clearly legible, never guess — hallucinated engagement/handle is the worst failure); INFER `platform` from visual branding (X/Bluesky/FB/IG logos), null if unclear. `has_readable_text=false` → don't run the pipeline; show the raw output / "couldn't read a claim."
+- **Model:** `qwen2.5vl:7b` (same as the gated edge-case vision — one model, two entry points). GPU.
+- **Pipeline connection:** `extract_from_image()` → **thin adapter** → `assess_claim()` (the SAME function the link path uses). Adapter transforms: sum `engagement` → one int; pack `image_type`/`depicts_claim`/`description` into the existing `vision` dict; null-fill `followers`; tag `source="uploaded_screenshot"`. **ONE real downstream change:** generalize the `source == "bluesky"` guard in `build_reader_signal` (red flag + source wording) to treat `"uploaded_screenshot"` as an unverified social source. The spine (classifier → region-aware RAG → signal assembly) is otherwise untouched. No canonical post URL exists → UI shows the uploaded image + any `visible_citation` instead of "Open original post."
+- **Streamlit:** `st.tabs` — "Text input" (existing link path) + "Photo input" (new). Photo tab: upload → show image → extracted fields → full pipeline result with the **degraded-fidelity** note. Failure handling per `has_readable_text`.
+- **Evaluation:** 10–15 hand-labeled images with expected JSON; transcription fields near-exact, classification fields accuracy-scored, `platform` not gated; **end-to-end verdict agreement** as the primary bar (does the image path reach the same reader signal as feeding the text directly?).
 
-## 8. Key files & functions (quick map)
-- `src/climate_verifier/config.yaml` — model, `llm_batch_size:1`, `evidence` (official_sources,
-  citation_domains, thresholds, high_reach), `vision` (model `qwen2.5vl:7b`, gate_categories:[], max_images),
-  storage db_path, ingestion keywords (5 categories).
-- `pipeline/evidence.py` — `ClimateEvidenceStore.build_index/evidence_for_claim`, `corroboration_check`
-  (`_CORROBORATION_PROMPT`), `build_reader_signal` (returns `bullets`), `assess_claim`, `assess_db_claims`,
-  `looks_like_forecast`, `is_official`, `extract_citations`, `_iso_date`.
-- `pipeline/vision.py` — `gate_edge_cases`, `analyze_image`, `_fetch_jpeg` (WebP→JPEG), `vision_reader_note`.
-- `pipeline/claim_classifier.py` — `classify` (single), `classify_pending`, `get_top_claims/opinions`
-  (post_id + sort_by), `LLM_BATCH_SIZE=1`.
-- `ingestion/bluesky.py` — `fetch_posts`, `fetch_post_by_url` (link→post metadata), `_extract_embed`,
-  `_batch_profiles`.
-- `ingestion/gdelt.py` — `fetch_articles` (add sourcecountry here for region work).
-- `ingestion/scheduler.py` — `run_ingestion_cycle(sources, force)`.
-- `ingestion/store.py` — `POST_COLUMNS`, `save`, `_iso_date`, schema migration.
-- `app.py` — sidebar `st.navigation`; `trust_checker`, `trust_results`, `_render_trust`, `_load_posts`,
-  `_bsky_url`, `_non_bluesky_url`, `_SORT_LABEL`, course-demo page fns.
+**CRITICAL Week-7 nuance (memory: `image-carried-claim-eval-example`):** some posts carry the claim in the IMAGE while the TEXT is pure opinion (canonical example: "RESIST TYRANNY" caption over a "DOGE fired NOAA's climate scientists → launched climate.us" card). Such a post is **OPINION in the text eval (correct — don't relabel it CLAIM there, it would corrupt the text classifier) and CLAIM in the image eval.** Two eval sets, two correct labels.
 
-## 9. Immediate next step
-Confirm the region-aware plan (§7) — **location-in-embedding + hard date-window filter + optional
-LLM re-rank** — and the re-rank default (off = trust retrieval / on = keep same-event guard). Then build:
-enrich GDELT index → re-index → metadata-aware query. Also offer to save the Week 6 assignment answers.
+## 6. Future extensions (deferred, in memory)
+- **Agentic retrieval + reranking agent** — fetch article bodies past bot walls → cross-encoder rerank (BGE/Jina) → LLM/NLI support/contradict verdict + source-credibility boost. (`planned-dynamic-eval-and-retrieval-eval`.)
+- **Dynamically growing eval set** — the relabel loop already appends; wire periodic re-eval so the drift chart tracks true concept drift. Evidence NOMINATES, human DISPOSES (never auto-relabel).
+- **Judge/arbiter agent for the FINAL verdict** — decide whether the surfaced verdict comes from the text classifier or the image classifier, so the USER sees ONE coherent answer (the text/image split is confusing to them). (`image-carried-claim-eval-example`.)
+- **Retrieval-quality eval** — labeled claim→expected-article pairs, precision@k.
+
+## 7. Key files map
+- `pipeline/geo.py` — location extraction (place-names, domain/ccTLD, `[AZ]`/`City, TX` abbreviations), `extract_location`, `with_location`.
+- `pipeline/evidence.py` — `evidence_for_claim` (region+time-aware retrieval, relevance floor), `build_reader_signal` (news_status, red flag, reframes, region-mismatch), `assess_claim`, `retrieval_only_verdict`, `corroboration_check`, `looks_like_forecast/eyewitness`, `is_official`, `extract_citations`.
+- `pipeline/relabel.py` — `get_relabel_candidates`, `apply_relabel`/`set_admin_label`/`append_to_eval_csv`, `eval_post_types`, `ensure_admin_columns`.
+- `pipeline/vision.py` — `gate_edge_cases`, `analyze_image`, `_fetch_jpeg` (WebP→JPEG), `vision_reader_note`. **Week 7 adds `extract_from_image` here.**
+- `pipeline/claim_classifier.py` — `classify`, `classify_pending` (bluesky-only), `get_stats` (total_classifiable/evidence).
+- `pipeline/evaluate.py` — `run_eval`, `compute_metrics`, `snapshot_metrics`, `load_eval_history`.
+- `ingestion/scheduler.py` — `run_ingestion_cycle` (+ top-up + refresher), `topup_evidence_for_claims`, `refresh_corpus`, CLI `--once/--force/--topup/--refresh/--dry-run`.
+- `ingestion/bluesky.py` — `fetch_posts`, `fetch_post_by_url`, `_extract_embed`, `check_posts_exist`.
+- `ingestion/gdelt.py` — `fetch_articles(..., timeout)`; `ingestion/store.py` — schema, `save`, `delete_posts`, `old_/oldest_bluesky_post_ids`, `_heldout_guard`.
+- `climate_verifier/maintenance.py` — Colab GPU chain. `climate_verifier/health.py` — heartbeats.
+- `app.py` — Trust Checker, Results, `_render_trust`, `_linkify_post`, Maintenance (`maintenance`, `_render_relabel_section`, `_render_static_eval`, `_admin_authed`), `classification_eval` (drift), health sidebar, `st.navigation`.
+- `config.yaml` — `evidence` (high/topic/low proximity, use_llm_rerank, official/citation domains, topup block), `vision` (qwen2.5vl:7b), `storage` (refresher: retention_days/verify_availability), `ingestion` keywords.
+
+## 8. Ops gotchas
+- **Windows Streamlit:** kill by port — `Get-NetTCPConnection -LocalPort 8501 -State Listen | %{ Stop-Process -Id $_.OwningProcess -Force }`. Module edits need a full restart; `app.py`-only edits just need a browser Rerun. File watcher OFF.
+- **Running from VS Code terminal doesn't need `git pull`** — edits land in the same local working tree. Pull only on another machine.
+- **Ingestion is I/O-bound + GDELT rate-limited**, not compute — Colab won't speed it up and throttles GDELT harder (shared IP). Run ingestion locally (own terminal so the harness doesn't kill it); GPU only helps classify/vision/eval.
+- **Admin tab:** set `ADMIN_PASSWORD` in `.env` to use it.
