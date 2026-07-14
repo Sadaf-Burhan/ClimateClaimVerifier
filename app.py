@@ -20,7 +20,6 @@ from pathlib import Path
 
 from climate_verifier.pipeline.claim_classifier import (
     classify,
-    classify_pending,
     classify_batch,
     classify_lean,
     get_stats,
@@ -453,58 +452,31 @@ def classification_eval():
 
     st.divider()
 
-    # Classifier controls
-    st.subheader("⚙️ Run Classifier")
-
-    batch_size = st.slider("Batch size (posts to classify this run)", 5, 100, 20, step=5)
+    # Classification STATUS — classification runs on the Colab GPU maintenance pass, not here.
+    # A local run on qwen2.5:3b (CPU) is slow, blocks the app, and can time out, so this page only
+    # reports whether a Colab classification pass is needed or was already done (from health.json).
+    st.subheader("🔧 Classification status")
+    _cls = load_health().get("classification")
+    _last = (f"Last Colab classification: **{_age_label(_cls.get('ts',''))}** "
+             f"({'✅ ok' if _cls.get('ok') else '🔴 failed'})." if _cls else
+             "No Colab classification run recorded yet.")
 
     if stats["total_ingested"] == 0:
-        st.warning("No posts in the database yet. Run the ingestion pipeline first.")
-        st.code("uv run python -m climate_verifier.ingestion.scheduler")
-
-    elif pending == 0:
-        st.success("All ingested posts have been classified.")
-        if st.button("🔄 Re-check stats"):
-            st.rerun()
-
+        st.warning("No posts in the database yet — run an ingestion cycle first.")
+        st.code("uv run python -m climate_verifier.ingestion.scheduler --once --force")
+    elif pending > 0:
+        st.warning(f"⏳ **{pending} Bluesky posts awaiting classification.**")
+        st.markdown(
+            "Classification runs on the **Colab GPU** maintenance pass — the local model is too slow "
+            "to run here without blocking the app. Push the DB to Drive and run the maintenance "
+            "notebook (`classify → vision → reindex → evaluate`), or on a GPU machine:")
+        st.code("python -m climate_verifier.maintenance --classify")
+        st.caption(_last)
     else:
-        st.info(f"{pending} posts waiting to be classified.")
-        col_a, col_b = st.columns([1, 1])
-        run_batch = col_a.button(f"▶ Classify next {min(batch_size, pending)} posts", type="primary")
-        run_all   = col_b.button(f"⚡ Classify ALL {pending} remaining posts")
-
-        batch_to_run = pending if run_all else batch_size
-
-        if run_batch or run_all:
-            progress_bar  = st.progress(0, text="Starting classifier...")
-            status_text   = st.empty()
-            results_log   = st.empty()
-
-            claims_this_run   = 0
-            opinions_this_run = 0
-            log_lines         = []
-
-            for update in classify_pending(DB_PATH, model=MODEL, batch_size=batch_to_run,
-                                           llm_batch_size=LLM_BATCH_SIZE):
-                pct   = update["done"] / update["total"]
-                label = "✅ CLAIM" if update["has_claim"] else "💬 OPINION"
-                if update["has_claim"]:
-                    claims_this_run += 1
-                else:
-                    opinions_this_run += 1
-
-                progress_bar.progress(pct, text=f"Classifying {update['done']} / {update['total']}")
-                status_text.caption(f"{label} — {update['reason'][:120]}")
-
-                log_lines.append(f"{label}  |  {update['reason'][:100]}")
-                results_log.code("\n".join(log_lines[-6:]))
-
-            progress_bar.progress(1.0, text="Done!")
-            st.success(
-                f"Batch complete — **{claims_this_run} claims** found, "
-                f"**{opinions_this_run} opinions** rejected."
-            )
-            st.rerun()
+        st.success("✅ **All Bluesky posts are classified** — no Colab pass needed right now.")
+        st.caption(_last)
+    if st.button("🔄 Re-check status"):
+        st.rerun()
 
     st.divider()
 
