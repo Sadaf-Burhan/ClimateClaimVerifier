@@ -77,7 +77,7 @@ def _load_posts(db_path: str, has_claim: int, limit: int = 25, sort_by: str = "e
     con = sqlite3.connect(db_path); con.row_factory = sqlite3.Row
     rows = con.execute(f"""
         SELECT p.post_id, p.text, p.author, p.author_followers, p.vision_signal,
-               p.keyword_category, p.created_at, c.reason,
+               p.keyword_category, p.created_at, p.external_url, c.reason,
                (p.likes + p.reposts + p.replies + p.quotes) AS engagement
         FROM posts p JOIN classifications c ON p.post_id = c.post_id
         WHERE c.has_claim = ? AND p.source = 'bluesky'
@@ -236,17 +236,24 @@ def _render_trust(store, post: dict, classify_first: bool):
     with st.spinner("Retrieving news + checking corroboration…"):
         a = assess_claim(store, text, engagement=int(post.get("engagement", 0)), source="bluesky",
                          followers=post.get("author_followers", 0) or 0,
-                         author=post.get("author", "") or "", vision=vision, cfg=cfg)
+                         author=post.get("author", "") or "", vision=vision, cfg=cfg,
+                         external_url=post.get("external_url", "") or "")
     sig, corro = a["signal"], a["corroboration"]
 
-    # ── THE SIGNAL — the clear reading for the reader, up top, in bold bullets ──
+    # ── THE SIGNAL — the clear reading for the reader, up top ──
     st.markdown("### 🧭 What the scanner is telling you")
     if sig["red_flag"]:
         st.error("🚩 **RED FLAG** — spreading widely, no news corroboration, unverified source, no cited "
                  "evidence. This is the misinformation-amplification pattern — **verify before you trust "
                  "or share.**")
+    # Bold only the leading label (Source:, Reach:, …); the answer stays normal weight. Sentences
+    # with no short "Label:" prefix (the reframe/red-flag lines) render plain.
     for b in sig.get("bullets", []):
-        st.markdown(f"- **{b}**")
+        label, sep, rest = b.partition(": ")
+        if sep and len(label) <= 40:
+            st.markdown(f"- **{label}:** {rest}")
+        else:
+            st.markdown(f"- {b}")
     st.caption(f"Corroboration verdict: **{corro['verdict'].upper()}** — {corro['reason']}")
     if vision:
         st.caption(f"🖼️ Image (edge-case vision): **{vision.get('image_type')}** · "
@@ -254,9 +261,9 @@ def _render_trust(store, post: dict, classify_first: bool):
 
     # ── The evidence the reading is based on ──
     st.markdown("#### 📰 News the scanner retrieved (RAG) — open them to verify")
-    st.caption("The number is a **topic-similarity score** (0–1): cosine similarity between your claim "
-               "and the article headline. Higher = closer wording/topic — it is **not** proof they "
-               "describe the same event (that's what the corroboration verdict above judges).")
+    st.caption("The **number on the left** is a topic-similarity score (0–1): cosine similarity between "
+               "your claim and the article headline. Higher = closer wording/topic — it is **not** proof "
+               "they describe the same event (that's what the corroboration verdict above judges).")
     claim_loc = a["retrieval"].get("location")
     if claim_loc:
         st.caption(f"📍 Region-aware retrieval: read your claim as **{claim_loc}** and folded that into "

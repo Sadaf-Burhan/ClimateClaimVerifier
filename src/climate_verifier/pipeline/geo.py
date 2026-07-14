@@ -97,6 +97,7 @@ _PLACES = {
     # Cross-region distinguishers — countries / big regions. Foreign-event headlines MUST
     # resolve to the event country, else a domestic outlet covering them (cbc.ca on a Spain
     # wildfire) would wrongly fall back to the outlet's home country.
+    "united states": _US, "usa": _US, "u.s.a": _US,
     "united kingdom": "United Kingdom", "britain": "United Kingdom", "england": "United Kingdom",
     "scotland": "United Kingdom", "wales": "United Kingdom", "london": "United Kingdom",
     "australia": "Australia", "sydney": "Australia", "melbourne": "Australia",
@@ -114,7 +115,8 @@ _PLACES = {
 
 # Strict abbreviations: uppercase, word-boundary, on the ORIGINAL-case text only.
 # (Lower-case "bc"/"ca" appear inside ordinary words — these must not false-positive.)
-_ABBR = {"BC": f"British Columbia, {_CA}", "B.C.": f"British Columbia, {_CA}"}
+_ABBR = {"BC": f"British Columbia, {_CA}", "B.C.": f"British Columbia, {_CA}",
+         "US": _US, "U.S.": _US, "U.S.A.": _US}
 
 # Longest phrase first so "washington state" beats "washington", "new york" is whole, etc.
 _PLACE_ORDER = sorted(_PLACES, key=len, reverse=True)

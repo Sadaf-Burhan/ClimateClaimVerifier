@@ -164,6 +164,11 @@ class ClimateEvidenceStore:
         } for doc, m, s in zip(docs, metas, sims)]
         top = sims[0] if sims else 0.0
         tier = "HIGH" if top >= high else ("LOW" if top >= low else "NONE")
+        # Relevance floor: only surface articles at least topically close (>= low). Below that,
+        # a "match" is noise — a different-region, different-topic headline that only ranked top
+        # because nothing better exists. Showing it (e.g. a 0.26 UK article for a BC claim) is
+        # misleading, so we return an empty set and the signal says "no relevant coverage found".
+        matches = [m for m in matches if m["similarity"] >= low]
         return {"proximity": top, "tier": tier, "location": loc, "matches": matches}
 
 
@@ -343,6 +348,10 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
                            "open the source to confirm it actually says so.")
     elif verdict == "partial" and cited:
         evidence_phrase = f"Retrieved news covers the topic but not this specific claim ({cited['domain']})."
+    elif n == 0:
+        evidence_phrase = ("No published news in the retrieved set is even topically close to this claim — "
+                           "no relevant coverage was found. Absence here is not proof it did not happen; "
+                           "the news corpus is limited.")
     else:
         evidence_phrase = (f"None of the {n} retrieved news articles report this specific event. "
                            "Absence here is not proof it did not happen — the retrieved news set is limited.")
@@ -413,7 +422,7 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
 def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int = 0,
                  source: str = "bluesky", followers: int = 0, domain: str = "",
                  author: str = "", vision: dict | None = None, cfg: dict | None = None,
-                 claim_date: str = "") -> dict:
+                 claim_date: str = "", external_url: str = "") -> dict:
     """Full Stage-4 assessment: retrieve (region/time-aware) → corroborate → reader signal,
     factoring self-citations, official-source status, and (edge cases) an image signal
     into the red flag. The LLM corroboration re-rank is optional (`evidence.use_llm_rerank`):
@@ -430,7 +439,11 @@ def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int
     else:
         corro = retrieval_only_verdict(retrieval)
     official_list = ev.get("official_sources", [])
-    citations = extract_citations(claim_text, ev.get("citation_domains", []))
+    # Scan the post text AND its embed/link (external_url) for citations — a post that *shares* a
+    # credible article via a Bluesky embed card cites its source just as much as one that pastes the
+    # URL inline; without this it would be wrongly flagged "no cited evidence".
+    cite_text = (claim_text or "") + ((" " + external_url) if external_url else "")
+    citations = extract_citations(cite_text, ev.get("citation_domains", []))
     for c in citations:                                  # does the link reshare an official source?
         c["official"] = is_official(c["domain"], "", official_list)
     official = is_official(author, domain, official_list)
@@ -453,6 +466,7 @@ def assess_db_claims(store: "ClimateEvidenceStore", db_path: str, limit: int = 1
     con.row_factory = sqlite3.Row
     rows = con.execute("""
         SELECT p.text, p.source, p.author, p.author_followers, p.vision_signal, p.created_at,
+               p.external_url,
                (p.likes + p.reposts + p.replies + p.quotes) AS engagement
         FROM posts p JOIN classifications c ON p.post_id = c.post_id
         WHERE c.has_claim = 1
@@ -469,7 +483,7 @@ def assess_db_claims(store: "ClimateEvidenceStore", db_path: str, limit: int = 1
         a = assess_claim(store, r["text"], engagement=r["engagement"], source=r["source"],
                          followers=r["author_followers"] or 0, author=r["author"] or "",
                          domain=r["author"] if r["source"] == "gdelt" else "", vision=vision, cfg=cfg,
-                         claim_date=r["created_at"] or "")
+                         claim_date=r["created_at"] or "", external_url=r["external_url"] or "")
         out.append({"text": r["text"], "author": r["author"], "source": r["source"],
                     "engagement": r["engagement"], **a})
     return out
