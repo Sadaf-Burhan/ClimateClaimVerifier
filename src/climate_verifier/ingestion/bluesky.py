@@ -31,6 +31,30 @@ def _get_client() -> Client:
 
 
 _PROFILE_BATCH = 25  # Bluesky get_profiles accepts max 25 DIDs per call
+_POST_BATCH = 25     # app.bsky.feed.getPosts accepts max 25 URIs per call
+
+
+def check_posts_exist(uris: list[str]) -> set[str]:
+    """Return the subset of Bluesky post URIs that STILL EXIST (getPosts omits deleted ones).
+
+    Batched 25/call. FAIL-SAFE: if a batch call errors (network/transient), those URIs are
+    treated as existing (returned), so a transient failure can never cause the refresher to
+    delete real posts. Only posts confirmed absent by a successful call are excluded."""
+    if not uris:
+        return set()
+    client = _get_client()
+    existing: set[str] = set()
+    for i in range(0, len(uris), _POST_BATCH):
+        batch = [u for u in uris[i:i + _POST_BATCH] if u]
+        if not batch:
+            continue
+        try:
+            resp = client.app.bsky.feed.get_posts({"uris": batch})
+            existing.update(p.uri for p in (getattr(resp, "posts", None) or []))
+        except Exception as e:
+            print(f"  availability check error (keeping this batch): {e}")
+            existing.update(batch)   # fail-safe — assume present on error
+    return existing
 
 _EMPTY_PROFILE = {"followers": 0, "bio": "", "posts_count": 0, "created_at": ""}
 

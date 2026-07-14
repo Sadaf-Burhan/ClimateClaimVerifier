@@ -145,7 +145,7 @@ def _render_health_sidebar():
     if not health:
         st.sidebar.caption("No runs recorded yet.")
         return
-    for stage in ("ingestion", "classification", "evaluation", "vision"):
+    for stage in ("ingestion", "classification", "evaluation", "vision", "refresh"):
         rec = health.get(stage)
         if not rec:
             continue

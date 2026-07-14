@@ -5,7 +5,7 @@ the minimum interval between runs (no redundant ingestion).
 """
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 # Canonical post columns — drives both the INSERT and the per-post default fill,
@@ -130,6 +130,62 @@ def hours_since_last_ingestion(db_path: str) -> float:
         return float("inf")
     elapsed = datetime.now(timezone.utc) - last
     return elapsed.total_seconds() / 3600
+
+
+def _heldout_guard(conn: sqlite3.Connection) -> str:
+    """SQL fragment that EXCLUDES held-out eval/train posts from deletion (leakage guard) —
+    only for columns that exist on this DB."""
+    have = {r[1] for r in conn.execute("PRAGMA table_info(posts)")}
+    g = ""
+    if "in_eval_set" in have:
+        g += " AND (in_eval_set IS NULL OR in_eval_set = 0)"
+    if "in_train_set" in have:
+        g += " AND (in_train_set IS NULL OR in_train_set = 0)"
+    return g
+
+
+def delete_posts(db_path: str, post_ids: list[str]) -> int:
+    """Delete the given posts AND their classifications. Returns posts removed.
+    Caller is responsible for the held-out guard when selecting `post_ids`."""
+    if not post_ids:
+        return 0
+    conn = _get_conn(db_path)
+    removed = 0
+    for i in range(0, len(post_ids), 400):
+        chunk = post_ids[i:i + 400]
+        q = ",".join("?" * len(chunk))
+        conn.execute(f"DELETE FROM classifications WHERE post_id IN ({q})", chunk)
+        cur = conn.execute(f"DELETE FROM posts WHERE post_id IN ({q})", chunk)
+        removed += cur.rowcount
+    conn.commit()
+    conn.close()
+    return removed
+
+
+def old_bluesky_post_ids(db_path: str, retention_days: int) -> list[str]:
+    """Bluesky post_ids older than retention_days (ISO created_at compares lexicographically),
+    excluding held-out eval/train posts. Undated posts are kept (NULL fails the comparison)."""
+    conn = _get_conn(db_path)
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+    guard = _heldout_guard(conn)
+    rows = conn.execute(
+        f"SELECT post_id FROM posts WHERE source = 'bluesky' AND created_at IS NOT NULL "
+        f"AND created_at < ?{guard}", (cutoff,)
+    ).fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def oldest_bluesky_post_ids(db_path: str, limit: int) -> list[str]:
+    """Oldest Bluesky post_ids (for the availability sweep), excluding held-out eval/train posts."""
+    conn = _get_conn(db_path)
+    guard = _heldout_guard(conn)
+    rows = conn.execute(
+        f"SELECT post_id FROM posts WHERE source = 'bluesky'{guard} "
+        f"ORDER BY created_at ASC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return [r[0] for r in rows]
 
 
 def save(posts: list[dict], db_path: str) -> int:

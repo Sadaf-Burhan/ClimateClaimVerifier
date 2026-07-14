@@ -15,9 +15,10 @@ from pathlib import Path
 from apscheduler.schedulers.blocking import BlockingScheduler
 from datetime import datetime, timezone, timedelta
 
-from climate_verifier.ingestion.bluesky import fetch_posts
+from climate_verifier.ingestion.bluesky import fetch_posts, check_posts_exist
 from climate_verifier.ingestion.gdelt import fetch_articles
-from climate_verifier.ingestion.store import save, hours_since_last_ingestion, set_last_ingestion_time
+from climate_verifier.ingestion.store import (save, hours_since_last_ingestion, set_last_ingestion_time,
+                                              old_bluesky_post_ids, oldest_bluesky_post_ids, delete_posts)
 from climate_verifier.pipeline.topic_filter import filter_posts
 from climate_verifier.pipeline.geo import extract_location
 from climate_verifier.health import update_health
@@ -180,6 +181,43 @@ def flatten_keywords(keywords: dict) -> list[tuple[str, str]]:
     return flat
 
 
+def refresh_corpus(db_path: str, cfg: dict, dry_run: bool = False) -> dict:
+    """End-of-cycle refresher. Keeps the Bluesky corpus fresh and free of dead links:
+
+      1. AGE EXPIRY — remove Bluesky posts older than `retention_days` (live OR deleted). A user
+         can always paste an old post's link to assess it live, so a short window is safe.
+      2. AVAILABILITY SWEEP — of the remaining (bounded by `verify_batch`, oldest first),
+         remove any that no longer exist on Bluesky (deleted by their author).
+
+    Never touches GDELT (the evidence corpus) or held-out eval/train posts. `dry_run` reports
+    counts without deleting. Writes a `refresh` health heartbeat."""
+    st = cfg.get("storage", {})
+    removed_old = removed_gone = 0
+
+    retention = st.get("retention_days", 0)
+    if retention and retention > 0:
+        old_ids = old_bluesky_post_ids(db_path, retention)
+        removed_old = len(old_ids)
+        verb = "would expire" if dry_run else "expiring"
+        print(f"  Refresh: {verb} {removed_old} Bluesky posts older than {retention}d")
+        if old_ids and not dry_run:
+            delete_posts(db_path, old_ids)
+
+    if st.get("verify_availability", True):
+        uris = oldest_bluesky_post_ids(db_path, st.get("verify_batch", 500))
+        if uris:
+            existing = check_posts_exist(uris)          # fail-safe: keeps a batch on API error
+            gone = [u for u in uris if u not in existing]
+            verb = "would remove" if dry_run else "removing"
+            print(f"  Refresh: availability-checked {len(uris)}; {verb} {len(gone)} no longer on Bluesky")
+            if gone and not dry_run:
+                removed_gone = delete_posts(db_path, gone)
+
+    if not dry_run:
+        update_health("refresh", ok=True, removed_old=removed_old, removed_gone=removed_gone)
+    return {"removed_old": removed_old, "removed_gone": removed_gone}
+
+
 def run_ingestion_cycle(sources=None, force=False):
     """Run one ingestion cycle.
 
@@ -268,6 +306,13 @@ def run_ingestion_cycle(sources=None, force=False):
         except Exception as e:
             print(f"  Evidence top-up skipped: {e}")
 
+    # ── Corpus refresher: expire old posts + drop ones deleted on Bluesky ─────
+    if cfg.get("storage", {}).get("refresh_enabled", True):
+        try:
+            refresh_corpus(db_path, cfg)
+        except Exception as e:
+            print(f"  Corpus refresh skipped: {e}")
+
     # ── Record completion time + health heartbeat ─────────────────────────────
     set_last_ingestion_time(db_path)
     update_health("ingestion", ok=True, sources=sources,
@@ -290,10 +335,20 @@ if __name__ == "__main__":
                         help="run ONE ingestion cycle and exit (for an OS scheduler / cron); "
                              "exits non-zero on failure so the scheduler's alert fires")
     parser.add_argument("--force", action="store_true", help="bypass the 24h interval guard")
+    parser.add_argument("--refresh", action="store_true",
+                        help="run ONLY the corpus refresher (expire old + remove deleted Bluesky posts)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="with --refresh: report what WOULD be removed, delete nothing")
     args = parser.parse_args()
 
     cfg      = load_config()
     ing      = cfg["ingestion"]
+
+    if args.refresh:
+        r = refresh_corpus(cfg["storage"]["db_path"], cfg, dry_run=args.dry_run)
+        print(f"Refresh {'(dry-run) ' if args.dry_run else ''}done — "
+              f"expired {r['removed_old']}, removed-deleted {r['removed_gone']}.")
+        raise SystemExit
 
     if args.once:
         import sys

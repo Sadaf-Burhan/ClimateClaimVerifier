@@ -182,3 +182,13 @@ storage:
   db_path: data/ingested.db   # SQLite database
   hot_window_days: 7
   cold_window_days: 30
+
+  # --- Corpus refresher (runs at the end of each ingestion cycle) -----------------
+  # Keeps the Bluesky corpus fresh and free of dead links. Never touches GDELT (the
+  # evidence corpus) or held-out eval/train posts. Preview first: run
+  #   uv run python -m climate_verifier.ingestion.scheduler --refresh --dry-run
+  refresh_enabled: true       # run the refresher at the end of each cycle
+  retention_days: 14          # remove Bluesky posts older than 2 weeks (live OR deleted) — a
+                              #   user can always paste an old post's link to assess it live
+  verify_availability: true   # also remove Bluesky posts that no longer exist on Bluesky (deleted)
+  verify_batch: 500           # max posts to availability-check per cycle (API-call bound)
