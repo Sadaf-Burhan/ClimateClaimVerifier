@@ -254,7 +254,8 @@ def _render_trust(store, post: dict, classify_first: bool):
             st.markdown(f"- **{label}:** {rest}")
         else:
             st.markdown(f"- {b}")
-    st.caption(f"Corroboration verdict: **{corro['verdict'].upper()}** — {corro['reason']}")
+    st.caption(f"Independent news corroboration: **{corro['verdict'].upper()}** — {corro['reason']} "
+               "(whether *other* news independently reports the same event — separate from any source the post itself links).")
     if vision:
         st.caption(f"🖼️ Image (edge-case vision): **{vision.get('image_type')}** · "
                    f"depicts_claim={vision.get('depicts_claim')} — {vision.get('description','')}")

@@ -239,9 +239,9 @@ def retrieval_only_verdict(retrieval: dict) -> dict:
     tier = retrieval.get("tier", "NONE")
     if tier == "HIGH" and retrieval.get("matches"):
         return {"verdict": "partial", "article": 1,
-                "reason": "strong same-region match on retrieval (LLM re-rank off) — open to confirm"}
+                "reason": "a retrieved article closely matches this topic and region — open it to confirm the event"}
     return {"verdict": "none", "article": 0,
-            "reason": "no strong same-region match (LLM re-rank off)"}
+            "reason": "no retrieved news is a close match to this specific claim"}
 
 
 _URL_RE = re.compile(r"https?://[^\s)\]>]+|www\.[^\s)\]>]+", re.I)
@@ -348,6 +348,15 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
                            "open the source to confirm it actually says so.")
     elif verdict == "partial" and cited:
         evidence_phrase = f"Retrieved news covers the topic but not this specific claim ({cited['domain']})."
+    elif credible_cite or reshared_official:
+        # The post supplies its OWN credible/official source — that linked article IS the evidence.
+        # An independent news search is a bonus, so its absence is not a strike and must not read
+        # like one. Lead with the source the post already provides, not "None retrieved".
+        src_kind = "an official source" if reshared_official else "its own credible source"
+        credible_doms = ", ".join(sorted({c["domain"] for c in citations if c.get("credible") or c.get("official")}))
+        evidence_phrase = (f"This post links {src_kind} ({credible_doms}) — that linked article is its "
+                           "supporting evidence; open it to verify. An independent news search found no "
+                           "additional coverage of this specific event, which does not weaken the cited source.")
     elif n == 0:
         evidence_phrase = ("No published news in the retrieved set is even topically close to this claim — "
                            "no relevant coverage was found. Absence here is not proof it did not happen; "
@@ -367,11 +376,12 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
     else:
         src_phrase = f"Source: news domain {domain}." if domain else "Source: a news article."
 
+    # When the post cites a credible/official source the evidence_phrase above already leads with it,
+    # so only add a citation line here for NON-credible self-citations (avoid saying it twice).
     cite_phrase = ""
-    if citations:
+    if citations and not (credible_cite or reshared_official):
         doms = ", ".join(sorted({c["domain"] for c in citations}))
-        cite_phrase = ("The post cites its own source (" + doms + ") — "
-                       + ("a credible domain; review it." if credible_cite else "review the linked source."))
+        cite_phrase = f"The post links a source ({doms}) — review the linked source."
 
     reach_phrase = f"Reach: {engagement:,} engagements." if engagement else "Reach: low engagement."
 
