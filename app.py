@@ -226,8 +226,8 @@ def _render_trust(store, post: dict, classify_first: bool):
     (st.info if is_claim else st.warning)(
         f"**Classification: {'CLAIM' if is_claim else 'OPINION'}** — {reason}")
     if not is_claim:
-        st.caption("Opinions have no specific factual event to corroborate — a strong match below would "
-                   "suggest this is actually a claim the classifier missed.")
+        st.caption("Opinions have no specific factual event to corroborate on their own — but strong "
+                   "evidence below can flag a claim the classifier missed (see the check below).")
 
     vision = None
     if post.get("vision_signal"):
@@ -243,6 +243,24 @@ def _render_trust(store, post: dict, classify_first: bool):
                          external_url=post.get("external_url", "") or "")
     sig, corro = a["signal"], a["corroboration"]
 
+    # Runtime relabel nomination: an OPINION whose evidence contradicts the label (news covers the
+    # event/topic, or it's an official / credibly-cited source) is likely a claim the classifier
+    # missed. Surface it to the reader — this NEVER auto-relabels; the same signal feeds the eval-set
+    # relabel queue (see MONITORING.md "evidence-nominated relabel candidates").
+    if not is_claim:
+        why = []
+        if sig.get("news_status") in ("REPORTED", "TOPIC MATCH"):
+            why.append("independent news covers the same event/topic")
+        if sig.get("treated_official"):
+            why.append("it comes from a verified official source")
+        if sig.get("credible_cite"):
+            why.append("it links its own credible source")
+        if why:
+            st.warning("🔎 **Possibly a missed claim.** The classifier labeled this an **OPINION**, but "
+                       + ", and ".join(why) + " — you may want to judge it as a **claim**. "
+                       "(The classifier is recall-first; forecasts and evidence-backed statements are its "
+                       "known weak spot.)")
+
     # ── THE SIGNAL — the clear reading for the reader, up top ──
     st.markdown("### 🧭 What the scanner is telling you")
     if sig["red_flag"]:
@@ -257,11 +275,14 @@ def _render_trust(store, post: dict, classify_first: bool):
             st.markdown(f"- **{label}:** {rest}")
         else:
             st.markdown(f"- {b}")
-    _VERDICT_LABEL = {"corroborated": "REPORTED", "partial": "TOPIC MATCH", "none": "NO MATCH"}
-    _vlabel = _VERDICT_LABEL.get(corro["verdict"], corro["verdict"].upper())
-    st.caption(f"Independent news check: **{_vlabel}** — {corro['reason']} "
-               "(does *other* news independently report the same event — a **topic match is not claim support**; "
-               "separate from any source the post itself links).")
+    _ns = sig.get("news_status", "NO MATCH")
+    _STATUS_NOTE = {
+        "REPORTED":    "a retrieved article appears to report this event — open it to confirm.",
+        "TOPIC MATCH": "retrieved news covers the same topic/region — a **topic match is not claim support** for your specific claim.",
+        "NO MATCH":    "no retrieved news is even topically close to this specific claim.",
+    }
+    st.caption(f"Independent news check: **{_ns}** — {_STATUS_NOTE.get(_ns, '')} "
+               "(does *other* news independently report the same event — separate from any source the post itself links).")
     if vision:
         st.caption(f"🖼️ Image (edge-case vision): **{vision.get('image_type')}** · "
                    f"depicts_claim={vision.get('depicts_claim')} — {vision.get('description','')}")
@@ -276,17 +297,17 @@ def _render_trust(store, post: dict, classify_first: bool):
         st.caption("No news in the corpus was even topically close to this claim, so there's nothing to "
                    "show. The news set is limited, so absence here is not proof either way.")
     else:
-        if corro["verdict"] in ("corroborated", "partial"):
+        if _ns == "REPORTED":
             st.markdown("#### 📰 News the scanner retrieved (RAG) — open them to verify")
             st.caption("The **number on the left** is a topic-similarity score (0–1): cosine similarity "
                        "between your claim and the article headline. Higher = closer wording/topic — it is "
                        "**not** proof they describe the same event (that's what the verdict above judges).")
-        else:
-            st.markdown("#### 🔍 Closest news the search found — none report *this specific* event")
-            st.caption("Shown for transparency, **not as corroboration**: these are the nearest headlines by "
-                       "wording/topic, so you can check the **NONE** above yourself. The **number on the "
-                       "left** is the topic-similarity score (0–1) — close in topic is not the same as "
-                       "reporting your specific claim.")
+        else:  # TOPIC MATCH — related coverage, but not confirmed to report this specific claim
+            st.markdown("#### 🔍 Related news on this topic — open to judge for yourself")
+            st.caption("Shown for transparency: these are the nearest headlines by wording/topic. They "
+                       "cover the same **subject**, but none is confirmed to report **this specific claim**. "
+                       "The **number on the left** is the topic-similarity score (0–1) — close in topic is "
+                       "not the same as reporting your exact claim.")
         claim_loc = a["retrieval"].get("location")
         if claim_loc:
             st.caption(f"📍 Region-aware retrieval: read your claim as **{claim_loc}** and folded that into "

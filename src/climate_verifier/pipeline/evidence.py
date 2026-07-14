@@ -363,8 +363,9 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
                            "no relevant coverage was found. Absence here is not proof it did not happen; "
                            "the news corpus is limited.")
     else:
-        evidence_phrase = (f"None of the {n} retrieved news articles report this specific event. "
-                           "Absence here is not proof it did not happen — the retrieved news set is limited.")
+        evidence_phrase = (f"Retrieved news covers this topic but none report this specific claim "
+                           f"({n} related article{'s' if n != 1 else ''} shown below to judge). Absence of an "
+                           "exact match is not proof it did not happen — the retrieved news set is limited.")
 
     if official:
         src_phrase = f"Source: a verified official source ({author or domain})."
@@ -399,6 +400,19 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
                 and source == "bluesky" and not treated_official and not credible_cite
                 and not vision_supports and not eyewitness_defused)
 
+    # DISPLAY status (decoupled from the red flag). The red flag stays on the strict `verdict`
+    # (only "corroborated"/HIGH-tier counts as support), but the user-facing label reflects whether
+    # any topically-related coverage was retrieved — so we never show "NO MATCH" above a list of
+    # clearly-related articles. A high-reach unverified post can still show TOPIC MATCH *and* a red
+    # flag (honest: related topic exists, but it does not support the specific claim).
+    has_related = n > 0
+    if verdict == "corroborated":
+        news_status = "REPORTED"
+    elif verdict == "partial" or has_related:
+        news_status = "TOPIC MATCH"
+    else:
+        news_status = "NO MATCH"
+
     parts = [evidence_phrase, src_phrase]
     if cite_phrase:
         parts.append(cite_phrase)
@@ -427,7 +441,7 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
             "credible_cite": credible_cite, "reshared_official": reshared_official,
             "treated_official": treated_official, "vision": vision,
             "vision_supports": vision_supports, "forecast": forecast,
-            "eyewitness": eyewitness_defused}
+            "eyewitness": eyewitness_defused, "news_status": news_status, "has_related": has_related}
 
 
 def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int = 0,
