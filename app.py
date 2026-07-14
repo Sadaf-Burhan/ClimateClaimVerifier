@@ -37,6 +37,7 @@ from climate_verifier.pipeline.embedder import (
     category_similarity_stats,
 )
 from climate_verifier.pipeline.evidence import get_store, assess_claim, assess_db_claims
+from climate_verifier.pipeline.relabel import get_relabel_candidates, apply_relabel, mark_reviewed_ok
 from climate_verifier.ingestion.bluesky import fetch_post_by_url
 from climate_verifier.ingestion.store import get_last_ingestion_time, hours_since_last_ingestion
 
@@ -72,12 +73,17 @@ def _load_posts(db_path: str, has_claim: int, limit: int = 25, sort_by: str = "e
     fields the trust panel needs (incl. post_id for the Bluesky link and any stored vision signal)."""
     order = _SORT_SQL.get(sort_by, _SORT_SQL["engagement"])
     con = sqlite3.connect(db_path); con.row_factory = sqlite3.Row
+    # Prefer the admin override (admin_label) over the model's has_claim, so admin relabels show to
+    # users. COALESCE tolerates DBs without the column (older schema) via a guard below.
+    has_admin = "admin_label" in {r[1] for r in con.execute("PRAGMA table_info(classifications)")}
+    label_expr = "COALESCE(c.admin_label, c.has_claim)" if has_admin else "c.has_claim"
     rows = con.execute(f"""
         SELECT p.post_id, p.text, p.author, p.author_followers, p.vision_signal,
                p.keyword_category, p.created_at, p.external_url, c.reason,
+               {label_expr} AS has_claim,
                (p.likes + p.reposts + p.replies + p.quotes) AS engagement
         FROM posts p JOIN classifications c ON p.post_id = c.post_id
-        WHERE c.has_claim = ? AND p.source = 'bluesky'
+        WHERE {label_expr} = ? AND p.source = 'bluesky'
         ORDER BY {order} LIMIT ?
     """, (has_claim, limit)).fetchall()
     con.close()
@@ -249,8 +255,8 @@ def _render_trust(store, post: dict, classify_first: bool):
     # relabel queue (see MONITORING.md "evidence-nominated relabel candidates").
     if not is_claim:
         why = []
-        if sig.get("news_status") in ("REPORTED", "TOPIC MATCH"):
-            why.append("independent news covers the same event/topic")
+        if sig.get("news_status") == "REPORTED":
+            why.append("independent news reports this event")
         if sig.get("treated_official"):
             why.append("it comes from a verified official source")
         if sig.get("credible_cite"):
@@ -318,6 +324,87 @@ def _render_trust(store, post: dict, classify_first: bool):
             title = f"[{m['title'][:90]}]({u})" if u else m["title"][:90]
             loc = f" · 📍 {m['location']}" if m.get("location") else ""
             st.markdown(f"- `{m['similarity']:.3f}` · **{m['domain']}**{loc} · {m.get('date','')} · {title}{mark}")
+
+
+def _admin_authed() -> bool:
+    """Gate the Maintenance tab. Admin password comes from `st.secrets['ADMIN_PASSWORD']` or the
+    `ADMIN_PASSWORD` env var (.env). Not full auth — enough to keep relabel out of users' hands."""
+    if st.session_state.get("is_admin"):
+        return True
+    import os
+    pw = None
+    try:
+        pw = st.secrets.get("ADMIN_PASSWORD")
+    except Exception:
+        pw = None
+    pw = pw or os.environ.get("ADMIN_PASSWORD")
+    if not pw:
+        st.error("🔒 Admin password not configured. Set `ADMIN_PASSWORD` in `.env` (or "
+                 "`.streamlit/secrets.toml`) to use the Maintenance tab.")
+        return False
+    entered = st.text_input("Admin password", type="password", key="admin_pw")
+    if entered:
+        if entered == pw:
+            st.session_state["is_admin"] = True
+            st.rerun()
+        st.error("Incorrect password.")
+    return False
+
+
+def _render_relabel_section(title: str, items: list, corrected_label: str, note: str = ""):
+    st.subheader(title)
+    if note:
+        st.caption(note)
+    if not items:
+        st.caption("None in the scanned set. ✅")
+        return
+    for c in items:
+        with st.container(border=True):
+            st.markdown(f"**Post:** {c['text'][:400]}")
+            cur = "CLAIM" if c["has_claim"] else "OPINION"
+            st.caption(f"Currently **{cur}** · @{c['author']} · {c['keyword_category']} · ❤️ {c['engagement']} "
+                       f"· news: **{c['news_status']}**" + (f" · why: {c['why']}" if c['why'] else ""))
+            col1, col2 = st.columns(2)
+            if col1.button(f"✅ Relabel as {corrected_label.upper()}", key=f"rl_{c['post_id']}", type="primary"):
+                apply_relabel(DB_PATH, str(EVAL_CSV), c["post_id"], c["text"], corrected_label, c["keyword_category"])
+                st.session_state["relabel_cands"] = None      # force a rescan
+                st.toast(f"Relabeled → {corrected_label.upper()} + appended to eval set")
+                st.rerun()
+            if col2.button("↩ Keep as is (model was right)", key=f"keep_{c['post_id']}"):
+                mark_reviewed_ok(DB_PATH, c["post_id"], c["has_claim"])
+                st.session_state["relabel_cands"] = None
+                st.toast("Marked reviewed; left unchanged")
+                st.rerun()
+
+
+def maintenance():
+    st.title("🔧 Maintenance — Admin")
+    if not _admin_authed():
+        return
+    st.success("Signed in as admin.")
+    st.caption("**Relabel review queue.** Evidence-nominated label mismatches. Confirming a relabel writes "
+               "an **admin override** (users see the corrected label on refresh) **and** appends the "
+               "corrected `(post, label)` to the eval benchmark (`claim_eval.csv`). Users can never relabel.")
+    scan = st.slider("Posts to scan (top by engagement)", 40, 300, 100, step=20)
+    if st.button("🔍 Scan for relabel candidates", type="primary"):
+        with st.spinner(f"Assessing the top {scan} posts…"):
+            st.session_state["relabel_cands"] = get_relabel_candidates(_trust_store(), DB_PATH, cfg, scan_limit=scan)
+    cands = st.session_state.get("relabel_cands")
+    if cands is None:
+        st.info("Click **Scan** to find candidates.")
+        return
+    n = len(cands["opinion_to_claim"]) + len(cands["claim_to_opinion"])
+    st.markdown(f"**{n} posts awaiting review.**")
+    st.divider()
+    _render_relabel_section(
+        "🟠 Opinions that look like CLAIMS", cands["opinion_to_claim"], "claim",
+        "Classified OPINION but evidence contradicts it (news covers it / official / credibly cited) — "
+        "likely missed claims (the costly false negatives).")
+    st.divider()
+    _render_relabel_section(
+        "🔵 Claims with no supporting evidence", cands["claim_to_opinion"], "opinion",
+        "Classified CLAIM but nothing corroborates it. **Lower confidence** — the headline-only corpus "
+        "means real claims often lack a match, so review carefully.")
 
 
 # ── Page Setup ────────────────────────────────────────────────────────────────
@@ -934,5 +1021,6 @@ pg = st.navigation({
         st.Page(base_vs_adapter, title="Base vs Adapter", icon="🧪"),
         st.Page(evidence_matching, title="Evidence Matching (RAG)", icon="🔎"),
     ],
+    "🔧 Admin": [st.Page(maintenance, title="Maintenance", icon="🔧")],
 })
 pg.run()
