@@ -167,9 +167,9 @@ def _render_drift():
     This is the signal that tells you the classifier is degrading before users feel it."""
     hist = load_eval_history()
     if not hist:
-        st.info("📈 **Drift log is empty.** Each evaluation run (the Colab GPU maintenance pass, "
-                "or the button below) appends recall / precision / FN / FP here, so you can watch "
-                "for classifier drift over time.")
+        st.info("📈 **Drift log is empty.** Each evaluation run (the Colab GPU maintenance pass, or "
+                "🔧 Maintenance → Run evaluation) appends recall / precision / FN / FP / benchmark-size "
+                "here, so you can watch for classifier drift over time.")
         return
     df = pd.DataFrame(hist)
     df["ts"] = pd.to_datetime(df["ts"], errors="coerce", utc=True)
@@ -183,7 +183,9 @@ def _render_drift():
     st.markdown("#### 📈 Model drift — evaluation history")
     st.caption(f"Last evaluated **{_age_label(str(latest['ts']))}** on model `{latest.get('model','?')}` "
                f"· {len(df)} run(s) logged.")
-    c1, c2, c3, c4 = st.columns(4)
+    n_now = int(latest.get("n", 0) or 0)
+    n_prev = int(prev.get("n", 0) or 0)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Recall (CLAIM)", f"{latest['recall']:.3f}",
               delta=f"{latest['recall']-prev['recall']:+.3f}" if multi else None,
               delta_color="normal")
@@ -191,18 +193,23 @@ def _render_drift():
               delta=f"{latest['precision']-prev['precision']:+.3f}" if multi else None)
     c3.metric("FN / FP", f"{int(latest['false_negatives'])} / {int(latest['false_positives'])}",
               help="False negatives (missed claims — costly) vs false positives (opinions surfaced — cheap)")
-    c4.metric("Meets target", "✅" if bool(latest.get("meets_target")) else "❌",
+    c4.metric("Benchmark (n)", n_now, delta=(n_now - n_prev) if multi and n_now != n_prev else None,
+              help="Size of the hand-labeled eval set. It grows as the admin relabels hard cases — "
+                   "which is what turns this from a static check into a true concept-drift signal.")
+    c5.metric("Meets target", "✅" if bool(latest.get("meets_target")) else "❌",
               help=f"recall ≥ {target:.0%}")
 
     st.line_chart(df.set_index("ts")[["recall", "precision"]])
     st.caption(f"Recall target ≥ {target:.0%}. A sustained **downward recall** trend is the costly "
-               "drift — real claims dropped at the gate. Precision recovers downstream, so watch recall.")
+               "drift — real claims dropped at the gate. Precision recovers downstream, so watch recall. "
+               "When **benchmark (n) grows** and recall holds, the model is generalizing to the new hard "
+               "cases; if recall drops *as n grows*, that's genuine concept drift on the new distribution.")
     fnfp = df.set_index("ts")[["false_negatives", "false_positives"]].rename(
         columns={"false_negatives": "FN (missed — costly)", "false_positives": "FP (surfaced — cheap)"})
     st.bar_chart(fnfp)
 
     with st.expander("Raw drift log"):
-        cols = ["ts", "model", "recall", "precision", "f1", "accuracy",
+        cols = ["ts", "model", "n", "recall", "precision", "f1", "accuracy",
                 "false_negatives", "false_positives", "meets_target"]
         st.dataframe(df[[c for c in cols if c in df.columns]].iloc[::-1],
                      use_container_width=True, hide_index=True)
@@ -395,6 +402,79 @@ def _render_relabel_section(title: str, items: list, corrected_label: str, note:
                 st.rerun()
 
 
+def _render_static_eval():
+    """Static point-in-time evaluation on the hand-labeled set: run the classifier and show the
+    confusion matrix, per-class metrics, and error breakdowns. Admin diagnostic — a local run is
+    slow; the canonical eval is the Colab GPU maintenance pass, which is what feeds the drift chart."""
+    st.subheader("📏 Static evaluation — hand-labeled set")
+    st.caption(
+        f"Point-in-time run of the classifier against `{EVAL_CSV}` (human ground truth). "
+        f"Success criterion: **recall on CLAIM ≥ {CLAIM_RECALL_TARGET:.0%}** — a missed claim (false "
+        "negative) is discarded forever (costly); a false positive just surfaces on the dashboard (cheap).")
+    if not EVAL_CSV.exists():
+        st.warning(f"`{EVAL_CSV}` not found.")
+        return
+    n_eval = len(load_eval_set(str(EVAL_CSV)))
+    if st.button(f"Run evaluation ({n_eval} labeled posts)"):
+        with st.spinner(f"Classifying {n_eval} posts with {MODEL}..."):
+            eval_results = run_eval(str(EVAL_CSV), model=MODEL, llm_batch_size=LLM_BATCH_SIZE)
+            metrics = compute_metrics(eval_results, claim_recall_target=CLAIM_RECALL_TARGET)
+        st.caption("🔬 Local diagnostic run — not added to the drift log (the drift series is produced by "
+                   "the Colab GPU maintenance pass, for backend-comparable numbers).")
+
+        claim_m = metrics["per_class"]["claim"]
+        asym    = metrics["error_asymmetry"]
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Recall on CLAIM", f"{claim_m['recall']:.3f}", delta=f"target ≥ {CLAIM_RECALL_TARGET:.2f}",
+                  delta_color="normal" if metrics["meets_target"] else "inverse")
+        m2.metric("Precision on CLAIM", f"{claim_m['precision']:.3f}")
+        m3.metric("Accuracy", f"{metrics['accuracy']:.3f}")
+        m4.metric("FN / FP", f"{asym['false_negatives']} / {asym['false_positives']}",
+                  help="False negatives (missed claims — costly) vs false positives (opinions surfaced — cheap)")
+
+        if metrics["meets_target"]:
+            st.success(f"✅ PASS — the gate lets through {claim_m['recall']:.1%} of real claims "
+                       f"(misses {asym['fn_rate']:.1%}); {asym['fp_rate']:.1%} of opinions slip through.")
+        else:
+            st.error(f"❌ BELOW TARGET — {asym['fn_rate']:.1%} of real claims are being discarded at the "
+                     "gate. See the post-type breakdown for where.")
+
+        cm = metrics["confusion_matrix"]
+        col_cm, col_pc = st.columns(2)
+        with col_cm:
+            st.markdown("**Confusion matrix** (positive class = claim)")
+            st.dataframe(pd.DataFrame({
+                "predicted claim":   [cm["true_claim_predicted_claim"], cm["true_opinion_predicted_claim"]],
+                "predicted opinion": [cm["true_claim_predicted_opinion"], cm["true_opinion_predicted_opinion"]],
+            }, index=["actual claim", "actual opinion"]), use_container_width=True)
+        with col_pc:
+            st.markdown("**Per-class metrics**")
+            st.dataframe(pd.DataFrame(metrics["per_class"]).T.round(3), use_container_width=True)
+
+        st.markdown("**Error breakdown** — where the misses are concentrated")
+        col_pt, col_kc = st.columns(2)
+        with col_pt:
+            st.caption("By post type (linguistic shape)")
+            st.dataframe(pd.DataFrame(metrics["by_post_type"]).T.style.format({"error_rate": "{:.1%}"}),
+                         use_container_width=True)
+        with col_kc:
+            st.caption("By keyword category (ingestion taxonomy)")
+            st.dataframe(pd.DataFrame(metrics["by_keyword_category"]).T.style.format({"error_rate": "{:.1%}"}),
+                         use_container_width=True)
+
+        with st.expander(f"Misclassified posts ({len(metrics['misclassified'])})"):
+            if metrics["misclassified"]:
+                for m in metrics["misclassified"]:
+                    direction = ("🔴 FALSE NEGATIVE (missed claim)" if m["expected_label"] == "claim"
+                                 else "🟡 FALSE POSITIVE (opinion surfaced)")
+                    st.markdown(f"{direction} · `{m['post_type']}`")
+                    st.markdown(f"> {m['post_text']}")
+                    st.caption(f"Model reason: {m['reason']}")
+                    st.divider()
+            else:
+                st.success("No misclassifications.")
+
+
 def maintenance():
     st.title("🔧 Maintenance — Admin")
     if not _admin_authed():
@@ -442,6 +522,9 @@ def maintenance():
         "🔵 Claims with no supporting evidence", cands["claim_to_opinion"], "opinion",
         "Classified CLAIM but nothing corroborates it. **Lower confidence** — the headline-only corpus "
         "means real claims often lack a match, so review carefully.")
+
+    st.divider()
+    _render_static_eval()   # point-in-time eval lives here (admin); the drift trend is in Evaluation
 
 
 # ── Page Setup ────────────────────────────────────────────────────────────────
@@ -636,99 +719,16 @@ def classification_eval():
 
     st.divider()
 
-    # Classifier evaluation against the hand-labeled set
-    st.subheader("📏 Classifier Evaluation — Hand-Labeled Set")
+    # Dynamic evaluation — model drift over the GROWING hand-labeled benchmark (true concept drift).
+    st.subheader("📈 Model drift — dynamic evaluation over time")
     st.caption(
-        f"Runs the classifier against `{EVAL_CSV}` (human ground truth). "
-        f"Success criterion: **recall on CLAIM ≥ {CLAIM_RECALL_TARGET:.0%}** — "
-        "a missed claim (false negative) is discarded forever, the costly error; "
-        "a false positive just surfaces on the dashboard, the cheap one. "
-        "Accuracy alone hides this asymmetry."
+        "How the classifier holds up on the **growing** hand-labeled benchmark — the true "
+        "**concept-drift** signal, not just a regression guard. Each point is a Colab GPU evaluation "
+        "run; the benchmark grows as the admin relabels hard cases (🔧 Maintenance), so a sustained "
+        f"move here reflects real drift. Target: **recall on CLAIM ≥ {CLAIM_RECALL_TARGET:.0%}**. "
+        "The point-in-time run (confusion matrix, breakdowns) lives in **🔧 Maintenance**."
     )
-
     _render_drift()
-
-    if not EVAL_CSV.exists():
-        st.warning(f"`{EVAL_CSV}` not found.")
-    else:
-        n_eval = len(load_eval_set(str(EVAL_CSV)))
-        if st.button(f"Run evaluation ({n_eval} labeled posts)"):
-            with st.spinner(f"Classifying {n_eval} posts with {MODEL}..."):
-                eval_results = run_eval(str(EVAL_CSV), model=MODEL,
-                                        llm_batch_size=LLM_BATCH_SIZE)
-                metrics = compute_metrics(eval_results,
-                                          claim_recall_target=CLAIM_RECALL_TARGET)
-            # Diagnostic only — does NOT write to the drift log. The drift series is populated by
-            # the Colab GPU maintenance pass so every point shares one backend (the classifier is
-            # nondeterministic across GPU/CPU; mixing backends would make the trend meaningless).
-            st.caption("🔬 Local diagnostic run — not added to the drift log (the drift series is "
-                       "produced by the Colab GPU maintenance pass, for backend-comparable numbers).")
-
-            claim_m = metrics["per_class"]["claim"]
-            asym    = metrics["error_asymmetry"]
-
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Recall on CLAIM", f"{claim_m['recall']:.3f}",
-                      delta=f"target ≥ {CLAIM_RECALL_TARGET:.2f}",
-                      delta_color="normal" if metrics["meets_target"] else "inverse")
-            m2.metric("Precision on CLAIM", f"{claim_m['precision']:.3f}")
-            m3.metric("Accuracy", f"{metrics['accuracy']:.3f}")
-            m4.metric("FN / FP", f"{asym['false_negatives']} / {asym['false_positives']}",
-                      help="False negatives (missed claims — costly) vs "
-                           "false positives (opinions surfaced — cheap)")
-
-            if metrics["meets_target"]:
-                st.success(
-                    f"✅ PASS — the gate lets through {claim_m['recall']:.1%} of real claims "
-                    f"(misses {asym['fn_rate']:.1%}); {asym['fp_rate']:.1%} of opinions slip through."
-                )
-            else:
-                st.error(
-                    f"❌ BELOW TARGET — {asym['fn_rate']:.1%} of real claims are being "
-                    "discarded at the gate. See the post-type breakdown for where."
-                )
-
-            cm = metrics["confusion_matrix"]
-            col_cm, col_pc = st.columns(2)
-            with col_cm:
-                st.markdown("**Confusion matrix** (positive class = claim)")
-                st.dataframe(pd.DataFrame(
-                    {
-                        "predicted claim":   [cm["true_claim_predicted_claim"], cm["true_opinion_predicted_claim"]],
-                        "predicted opinion": [cm["true_claim_predicted_opinion"], cm["true_opinion_predicted_opinion"]],
-                    },
-                    index=["actual claim", "actual opinion"],
-                ), use_container_width=True)
-            with col_pc:
-                st.markdown("**Per-class metrics**")
-                st.dataframe(pd.DataFrame(metrics["per_class"]).T.round(3),
-                             use_container_width=True)
-
-            st.markdown("**Error breakdown** — where the misses are concentrated")
-            col_pt, col_kc = st.columns(2)
-            with col_pt:
-                st.caption("By post type (linguistic shape)")
-                pt_df = pd.DataFrame(metrics["by_post_type"]).T
-                st.dataframe(pt_df.style.format({"error_rate": "{:.1%}"}),
-                             use_container_width=True)
-            with col_kc:
-                st.caption("By keyword category (ingestion taxonomy)")
-                kc_df = pd.DataFrame(metrics["by_keyword_category"]).T
-                st.dataframe(kc_df.style.format({"error_rate": "{:.1%}"}),
-                             use_container_width=True)
-
-            with st.expander(f"Misclassified posts ({len(metrics['misclassified'])})"):
-                if metrics["misclassified"]:
-                    for m in metrics["misclassified"]:
-                        direction = ("🔴 FALSE NEGATIVE (missed claim)"
-                                     if m["expected_label"] == "claim"
-                                     else "🟡 FALSE POSITIVE (opinion surfaced)")
-                        st.markdown(f"{direction} · `{m['post_type']}`")
-                        st.markdown(f"> {m['post_text']}")
-                        st.caption(f"Model reason: {m['reason']}")
-                        st.divider()
-                else:
-                    st.success("No misclassifications.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
