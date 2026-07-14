@@ -12,6 +12,7 @@ Run:  uv run streamlit run app.py
 """
 
 import json
+import re
 import sqlite3
 import streamlit as st
 import yaml
