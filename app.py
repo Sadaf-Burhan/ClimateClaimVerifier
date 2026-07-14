@@ -258,25 +258,37 @@ def _render_trust(store, post: dict, classify_first: bool):
         st.caption(f"🖼️ Image (edge-case vision): **{vision.get('image_type')}** · "
                    f"depicts_claim={vision.get('depicts_claim')} — {vision.get('description','')}")
 
-    # ── The evidence the reading is based on ──
-    st.markdown("#### 📰 News the scanner retrieved (RAG) — open them to verify")
-    st.caption("The **number on the left** is a topic-similarity score (0–1): cosine similarity between "
-               "your claim and the article headline. Higher = closer wording/topic — it is **not** proof "
-               "they describe the same event (that's what the corroboration verdict above judges).")
-    claim_loc = a["retrieval"].get("location")
-    if claim_loc:
-        st.caption(f"📍 Region-aware retrieval: read your claim as **{claim_loc}** and folded that into "
-                   "the search, so same-region news ranks higher.")
+    # ── The evidence the reading is based on. Header adapts to the verdict so a NONE verdict
+    #    with a list below doesn't read as a contradiction: the list is the CLOSEST topical
+    #    neighbours we searched (shown for transparency), not confirmations. ──
+    matches = a["retrieval"]["matches"]
     cited = sig.get("cited")
-    if a["retrieval"]["matches"]:
-        for m in a["retrieval"]["matches"]:
+    if not matches:
+        st.markdown("#### 🔍 News search — nothing relevant found")
+        st.caption("No news in the corpus was even topically close to this claim, so there's nothing to "
+                   "show. The news set is limited, so absence here is not proof either way.")
+    else:
+        if corro["verdict"] in ("corroborated", "partial"):
+            st.markdown("#### 📰 News the scanner retrieved (RAG) — open them to verify")
+            st.caption("The **number on the left** is a topic-similarity score (0–1): cosine similarity "
+                       "between your claim and the article headline. Higher = closer wording/topic — it is "
+                       "**not** proof they describe the same event (that's what the verdict above judges).")
+        else:
+            st.markdown("#### 🔍 Closest news the search found — none report *this specific* event")
+            st.caption("Shown for transparency, **not as corroboration**: these are the nearest headlines by "
+                       "wording/topic, so you can check the **NONE** above yourself. The **number on the "
+                       "left** is the topic-similarity score (0–1) — close in topic is not the same as "
+                       "reporting your specific claim.")
+        claim_loc = a["retrieval"].get("location")
+        if claim_loc:
+            st.caption(f"📍 Region-aware retrieval: read your claim as **{claim_loc}** and folded that into "
+                       "the search, so same-region news ranks higher.")
+        for m in matches:
             mark = "  ⬅ **cited**" if cited and m["url"] == cited.get("url") else ""
             u = m["url"] if str(m["url"]).startswith("http") else ""
             title = f"[{m['title'][:90]}]({u})" if u else m["title"][:90]
             loc = f" · 📍 {m['location']}" if m.get("location") else ""
             st.markdown(f"- `{m['similarity']:.3f}` · **{m['domain']}**{loc} · {m.get('date','')} · {title}{mark}")
-    else:
-        st.caption("No news articles retrieved.")
 
 
 # ── Page Setup ────────────────────────────────────────────────────────────────
