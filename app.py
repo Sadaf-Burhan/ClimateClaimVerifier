@@ -101,6 +101,24 @@ def _bsky_url(post_id: str) -> str:
         return ""
 
 
+def _norm_url(u: str) -> str:
+    return re.sub(r"^https?://", "", (u or "").strip()).removeprefix("www.").rstrip("/").lower()
+
+
+def _linkify_post(text: str, external_url: str = "") -> str:
+    """Bluesky embeds a TRUNCATED display URL in the post text (e.g. `www.cbc.ca/radio/whaton…`),
+    which 404s when clicked. If we have the full embed URL and the truncated token is a prefix of it,
+    replace that token with a working markdown link to the full URL."""
+    ext = (external_url or "").strip()
+    m = re.search(r"(https?://[^\s]+|www\.[^\s]+)", text or "")
+    if not ext.startswith("http") or not m:
+        return text
+    token = m.group(0).rstrip(".…")                     # drop trailing … / .
+    if _norm_url(ext).startswith(_norm_url(token)[:12]):  # same URL, just truncated
+        return text.replace(m.group(0), f"[{m.group(0)}]({ext})")
+    return text
+
+
 _OTHER_PLATFORMS = ["facebook.com", "fb.com", "twitter.com", "x.com", "instagram.com",
                     "tiktok.com", "reddit.com", "youtube.com", "youtu.be", "threads.net",
                     "mastodon", "linkedin.com", "t.me"]
@@ -220,7 +238,7 @@ def _render_trust(store, post: dict, classify_first: bool):
     """Full trust panel for one post: classification → corroboration + credible sources →
     reader signal → verification links. Surfaces signals; never asserts truth."""
     text = post["text"]
-    st.markdown(f"**Post:** {text}")
+    st.markdown(f"**Post:** {_linkify_post(text, post.get('external_url', ''))}")
     url = _bsky_url(post.get("post_id", ""))
     if url:
         st.markdown(f"🔗 [Open the original Bluesky post to verify]({url})  ·  @{post.get('author','')}")
@@ -373,7 +391,16 @@ def _render_relabel_section(title: str, items: list, corrected_label: str, note:
     types = eval_post_types(str(EVAL_CSV))          # FRESH read every rerun — never a stale list
     for c in items:
         with st.container(border=True):
-            st.markdown(f"**Post:** {c['text'][:400]}")
+            st.markdown(f"**Post:** {_linkify_post(c['text'][:400], c.get('external_url', ''))}")
+            links = []
+            bsky = _bsky_url(c.get("post_id", ""))
+            if bsky:
+                links.append(f"🔗 [Open the Bluesky post]({bsky})")
+            ext = (c.get("external_url") or "").strip()
+            if ext.startswith("http"):
+                links.append(f"📎 [Linked article]({ext})")
+            if links:
+                st.markdown(" · ".join(links))
             cur = "CLAIM" if c["has_claim"] else "OPINION"
             st.caption(f"Currently **{cur}** · @{c['author']} · {c['keyword_category']} · ❤️ {c['engagement']} "
                        f"· news: **{c['news_status']}**" + (f" · why: {c['why']}" if c['why'] else ""))

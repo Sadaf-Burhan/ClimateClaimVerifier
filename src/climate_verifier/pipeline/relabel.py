@@ -73,8 +73,8 @@ def get_relabel_candidates(store, db_path: str, cfg: dict, scan_limit: int = 100
             why.append("credible cited source")
         cand = {"post_id": r["post_id"], "text": r["text"], "author": r["author"] or "",
                 "engagement": r["engagement"], "keyword_category": r["keyword_category"] or "",
-                "has_claim": r["has_claim"], "news_status": s["news_status"],
-                "why": ", ".join(why)}
+                "external_url": r["external_url"] or "", "has_claim": r["has_claim"],
+                "news_status": s["news_status"], "why": ", ".join(why)}
         if r["has_claim"] == 0 and why:                       # OPINION but evidence contradicts
             to_claim.append(cand)
         elif r["has_claim"] == 1 and not why and s["news_status"] == "NO MATCH":  # CLAIM, no support
