@@ -83,6 +83,16 @@ diagnostics that do not write the drift log.**
    append them to `claim_eval.csv`, so the drift chart becomes a true **concept-drift** detector
    (framing shifts, new phenomena) — not only a regression guard against model/env changes.
 
+   **Evidence-nominated relabel candidates (active learning, not random sampling).** Grow the benchmark
+   from the boundary cases the pipeline already flags, not a random draw. Two triggers surface a post
+   classified **OPINION** for human relabel review (likely a missed claim / false negative):
+     - a **strong GDELT match** (HIGH corroboration tier), and/or
+     - a **credible self-cited source** (the post links a credible outlet whose article backs the claim).
+   Guardrail: **evidence NOMINATES, a human DISPOSES — never auto-relabel.** A headline match is topic
+   similarity, not proof; and we can't yet read the *cited article's body* to confirm it quotes the claim
+   (that's the deferred agentic-retrieval extension). Confirmed corrections append to `claim_eval.csv`, so
+   the benchmark grows toward exactly the boundary the recall-first classifier struggles with (~0.70 precision).
+
    **Evidence-nominated relabel candidates (active-learning selection).** Rather than sample at random,
    target the boundary cases the pipeline already flags. Chief signal: a post classified **OPINION but
    with a STRONG evidence match** (HIGH corroboration tier and/or a credible cited source on a specific
