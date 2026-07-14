@@ -319,7 +319,9 @@ def trust_checker():
         "- Flags the **reach-vs-support mismatch**: a post spreading fast with no news backing.\n\n"
         "**What this does NOT do**\n"
         "- It does **not** decide whether a post is true or false — *you* judge, using the signals.\n"
-        "- It works on **Bluesky posts only** (not Facebook, X, or other platforms)."
+        "- It works on **Bluesky posts only** (not Facebook, X, or other platforms).\n"
+        "- It matches claims against news **headlines, not full article text** — so it surfaces *related "
+        "coverage* and the *reach-vs-support* signal, **not** a line-by-line fact-check of the exact claim."
     )
     with st.expander("🚩 How to read a red-flagged post — before you trust or share", expanded=True):
         st.markdown(_MISINFO_TIPS)

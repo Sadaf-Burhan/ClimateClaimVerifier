@@ -169,6 +169,25 @@ Because "no news match" has legitimate causes, the flag applies **two guards**: 
 
 ---
 
+## Limitations & Future Extensions
+
+**Evidence matching is headline-based.** The GDELT corpus stores article **headlines only**, not full
+text. So retrieval and the corroboration signal operate at the level of *related coverage* and the
+*reach-vs-support* mismatch — the scanner surfaces news on the same topic/event and flags claims that
+spread with no news backing. It does **not** read article bodies to verify a specific proposition:
+*"Trump appoints a climate skeptic"* is semantically close to *"Trump doesn't believe in climate change"*
+but they are different claims. This is why the verdict distinguishes **TOPIC MATCH** from claim support,
+and the UI states the constraint plainly ("matches against headlines, not full article text").
+
+**Future extension — an agentic retrieval + reranking layer.** Turning "topic match" into genuine
+claim-support (support / contradict / merely-discuss) needs the article *text*, which means fetching and
+extracting content past sophisticated bot / anti-scraping walls — a substantial project on its own. The
+natural home is an **agentic framework** with a dedicated agent owning retrieval + reranking (embedding
+retrieval → cross-encoder reranker like BGE/Jina over the top 30–50 → snippet/body fetch), leaving the
+LLM to do the final evidence-reasoning (NLI) verdict. A source-credibility re-rank tiebreak (prefer
+straight news over blogs/opinion) is the cheap first step. **Deferred by design** — kept out of the
+current build so the scanner stays honest about being a headline-level signal, not a fact-checker.
+
 ## How Success Is Measured
 
 ### Week 1 — Classifier Quality
