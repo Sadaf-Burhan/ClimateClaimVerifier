@@ -118,6 +118,45 @@ _PLACES = {
 _ABBR = {"BC": f"British Columbia, {_CA}", "B.C.": f"British Columbia, {_CA}",
          "US": _US, "U.S.": _US, "U.S.A.": _US}
 
+# Two-letter US state / Canadian province codes -> "Region, Country". Matched ONLY in a location
+# context — bracketed `[AZ]` or after a comma `Tucson, AZ` — so ambiguous codes ("IN", "OR", "ME")
+# don't false-positive on ordinary capitalised words. This catches NWS/weather-bot posts like
+# "Flash Flood Warning for Pima, Santa Cruz [AZ]".
+_ABBR_REGION = {code: f"{name}, {_US}" for code, name in {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
+    "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "FL": "Florida", "GA": "Georgia",
+    "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
+    "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland", "MA": "Massachusetts",
+    "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi", "MO": "Missouri", "MT": "Montana",
+    "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico",
+    "NY": "New York", "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma",
+    "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina",
+    "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont",
+    "VA": "Virginia", "WA": "Washington", "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
+}.items()}
+_ABBR_REGION.update({code: f"{name}, {_CA}" for code, name in {
+    "AB": "Alberta", "MB": "Manitoba", "NB": "New Brunswick", "NL": "Newfoundland",
+    "NS": "Nova Scotia", "ON": "Ontario", "QC": "Quebec", "SK": "Saskatchewan", "YT": "Yukon",
+}.items()})   # BC handled by _ABBR (also matches standalone)
+_ABBR_REGION_RE = re.compile(r"\[([A-Z]{2})\]|,\s*([A-Z]{2})\b")
+# Codes that are also common English words in caps — only trust these when BRACKETED, not after a
+# comma (", ON the other hand" must not become Ontario).
+_AMBIG_CODES = {"IN", "OR", "ME", "HI", "OK", "ON", "OH"}
+
+
+def _abbr_region_location(text: str) -> str:
+    """Location from a bracketed or comma-preceded 2-letter state/province code (high precision)."""
+    for m in _ABBR_REGION_RE.finditer(text or ""):
+        bracket, comma = m.group(1), m.group(2)
+        code = bracket or comma
+        if code not in _ABBR_REGION:
+            continue
+        if comma and code in _AMBIG_CODES:       # ", ON" etc. — too ambiguous unless bracketed
+            continue
+        return _ABBR_REGION[code]
+    return ""
+
+
 # Longest phrase first so "washington state" beats "washington", "new york" is whole, etc.
 _PLACE_ORDER = sorted(_PLACES, key=len, reverse=True)
 _PLACE_RE = {name: re.compile(rf"\b{re.escape(name)}\b") for name in _PLACE_ORDER}
@@ -152,7 +191,10 @@ def _text_location(text: str) -> str:
     for name in _PLACE_ORDER:
         if _PLACE_RE[name].search(low):
             return _PLACES[name]
-    for abbr, loc in _ABBR.items():          # strict, original-case
+    loc = _abbr_region_location(text)        # bracketed [AZ] or "City, TX"
+    if loc:
+        return loc
+    for abbr, loc in _ABBR.items():          # strict, original-case (BC, US)
         if _ABBR_RE[abbr].search(text):
             return loc
     return ""

@@ -356,6 +356,21 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
     else:
         news_status = "NO MATCH"
 
+    # Region-mismatch demotion: the claim names a specific region, but every TOPIC MATCH is from a
+    # DIFFERENT region (e.g. an Arizona flash-flood claim matched to Pennsylvania/Tennessee flash
+    # floods). Same topic, not the same event → demote to NO MATCH and name the other regions.
+    claim_region = retrieval.get("location") or ""
+    claim_state = claim_region.split(",")[0].strip().lower() if "," in claim_region else ""
+    region_mismatch = False
+    other_regions = []
+    if claim_state and news_status == "TOPIC MATCH":
+        same = any(claim_state in (m.get("location") or "").lower() for m in matches)
+        other_regions = sorted({m["location"] for m in matches
+                                if m.get("location") and claim_state not in m["location"].lower()})
+        if not same and other_regions:
+            news_status = "NO MATCH"
+            region_mismatch = True
+
     if verdict == "corroborated" and cited:
         evidence_phrase = (f"A retrieved news article appears to report this event ({cited['domain']}) — "
                            "open the source to confirm it actually says so.")
@@ -370,6 +385,11 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
         evidence_phrase = (f"This post links {src_kind} ({credible_doms}) — that linked article is its "
                            "supporting evidence; open it to verify. An independent news search found no "
                            "additional coverage of this specific event, which does not weaken the cited source.")
+    elif region_mismatch:
+        rlist = ", ".join(r.split(",")[0] for r in other_regions[:3])
+        evidence_phrase = (f"Retrieved news covers the same topic but from OTHER regions ({rlist}) — not "
+                           f"{claim_region.split(',')[0]}, so it likely does not report your specific event. "
+                           "No same-region match was found; the corpus is limited, so this isn't proof either way.")
     elif news_status == "TOPIC MATCH":
         evidence_phrase = (f"Retrieved news covers this topic but none report this specific claim "
                            f"({n} related article{'s' if n != 1 else ''} below to judge). Absence of an exact "
@@ -447,7 +467,8 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
             "credible_cite": credible_cite, "reshared_official": reshared_official,
             "treated_official": treated_official, "vision": vision,
             "vision_supports": vision_supports, "forecast": forecast,
-            "eyewitness": eyewitness_defused, "news_status": news_status, "has_related": has_related}
+            "eyewitness": eyewitness_defused, "news_status": news_status, "has_related": has_related,
+            "region_mismatch": region_mismatch, "other_regions": other_regions}
 
 
 def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int = 0,

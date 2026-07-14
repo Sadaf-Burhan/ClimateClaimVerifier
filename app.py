@@ -342,6 +342,12 @@ def _render_trust(store, post: dict, classify_first: bool):
                        "cover the same **subject**, but none is confirmed to report **this specific claim**. "
                        "The **number on the left** is the topic-similarity score (0–1) — close in topic is "
                        "not the same as reporting your exact claim.")
+        elif sig.get("region_mismatch"):
+            others = ", ".join(r.split(",")[0] for r in sig.get("other_regions", [])[:3])
+            st.markdown("#### 🔍 Same topic — but from **other regions**")
+            st.caption(f"These cover the same subject, but they're from **{others}** — not your claim's "
+                       "region — so they likely report a *different* event. Shown for transparency; the "
+                       "**number on the left** is topic-similarity (0–1), which doesn't account for region.")
         else:  # NO MATCH — only weak/noise neighbours cleared the display floor
             st.markdown("#### 🔍 Nearest headlines the search found — likely **not** about your claim")
             st.caption("**No real match was found.** These are just the closest headlines by wording — the "
