@@ -209,6 +209,12 @@ def _render_trust(store, post: dict, classify_first: bool):
     url = _bsky_url(post.get("post_id", ""))
     if url:
         st.markdown(f"🔗 [Open the original Bluesky post to verify]({url})  ·  @{post.get('author','')}")
+    # The URL in the post text is Bluesky's TRUNCATED display link (…/2026…) and breaks when
+    # clicked — surface the full embed URL as a working link.
+    ext = (post.get("external_url") or "").strip()
+    if ext.startswith("http"):
+        shown = ext if len(ext) <= 72 else ext[:72] + "…"
+        st.markdown(f"📎 **Linked article (full URL):** [{shown}]({ext})")
 
     # Classification (fresh for a pasted post; stored label for a picked one)
     if classify_first:
@@ -251,8 +257,11 @@ def _render_trust(store, post: dict, classify_first: bool):
             st.markdown(f"- **{label}:** {rest}")
         else:
             st.markdown(f"- {b}")
-    st.caption(f"Independent news corroboration: **{corro['verdict'].upper()}** — {corro['reason']} "
-               "(whether *other* news independently reports the same event — separate from any source the post itself links).")
+    _VERDICT_LABEL = {"corroborated": "REPORTED", "partial": "TOPIC MATCH", "none": "NO MATCH"}
+    _vlabel = _VERDICT_LABEL.get(corro["verdict"], corro["verdict"].upper())
+    st.caption(f"Independent news check: **{_vlabel}** — {corro['reason']} "
+               "(does *other* news independently report the same event — a **topic match is not claim support**; "
+               "separate from any source the post itself links).")
     if vision:
         st.caption(f"🖼️ Image (edge-case vision): **{vision.get('image_type')}** · "
                    f"depicts_claim={vision.get('depicts_claim')} — {vision.get('description','')}")
@@ -283,7 +292,7 @@ def _render_trust(store, post: dict, classify_first: bool):
             st.caption(f"📍 Region-aware retrieval: read your claim as **{claim_loc}** and folded that into "
                        "the search, so same-region news ranks higher.")
         for m in matches:
-            mark = "  ⬅ **cited**" if cited and m["url"] == cited.get("url") else ""
+            mark = "  ← **closest match**" if cited and m["url"] == cited.get("url") else ""
             u = m["url"] if str(m["url"]).startswith("http") else ""
             title = f"[{m['title'][:90]}]({u})" if u else m["title"][:90]
             loc = f" · 📍 {m['location']}" if m.get("location") else ""

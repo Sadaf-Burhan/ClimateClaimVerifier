@@ -239,7 +239,8 @@ def retrieval_only_verdict(retrieval: dict) -> dict:
     tier = retrieval.get("tier", "NONE")
     if tier == "HIGH" and retrieval.get("matches"):
         return {"verdict": "partial", "article": 1,
-                "reason": "a retrieved article closely matches this topic and region — open it to confirm the event"}
+                "reason": "retrieved news covers the same topic/region, but that is not the same as reporting "
+                          "this specific claim — open it to check"}
     return {"verdict": "none", "article": 0,
             "reason": "no retrieved news is a close match to this specific claim"}
 
