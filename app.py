@@ -389,12 +389,14 @@ def _render_relabel_section(title: str, items: list, corrected_label: str, note:
     if not items:
         st.caption("None in the scanned set. ✅")
         return
-    types = eval_post_types(str(EVAL_CSV))          # FRESH read every rerun — never a stale list
+    done = st.session_state.setdefault("relabel_done", {})   # post_id -> inline "done" message
+    types = eval_post_types(str(EVAL_CSV))                   # FRESH read every rerun — never a stale list
     for c in items:
+        pid = c["post_id"]
         with st.container(border=True):
             st.markdown(f"**Post:** {_linkify_post(c['text'][:400], c.get('external_url', ''))}")
             links = []
-            bsky = _bsky_url(c.get("post_id", ""))
+            bsky = _bsky_url(pid)
             if bsky:
                 links.append(f"🔗 [Open the Bluesky post]({bsky})")
             ext = (c.get("external_url") or "").strip()
@@ -402,31 +404,38 @@ def _render_relabel_section(title: str, items: list, corrected_label: str, note:
                 links.append(f"📎 [Linked article]({ext})")
             if links:
                 st.markdown(" · ".join(links))
+
+            # Already actioned this session — show a small confirmation, keep it in place, move on.
+            if pid in done:
+                st.success(done[pid])
+                continue
+
             cur = "CLAIM" if c["has_claim"] else "OPINION"
             st.caption(f"Currently **{cur}** · @{c['author']} · {c['keyword_category']} · ❤️ {c['engagement']} "
                        f"· news: **{c['news_status']}**" + (f" · why: {c['why']}" if c['why'] else ""))
-            # The "thought" (post_type) that will be written to the eval set — pick an existing one
-            # for consistency, or add a new category. Notes = the specific reason for this label.
-            pt = st.selectbox("Thought (post_type)", types + [_ADD_NEW], key=f"pt_{c['post_id']}",
+            # The "thought" (post_type) written to the eval set — pick an existing one for consistency,
+            # or add a new category. Notes = the specific reason for this label.
+            pt = st.selectbox("Thought (post_type)", types + [_ADD_NEW], key=f"pt_{pid}",
                               help="The reasoning category this post exemplifies — keeps hand-labels consistent.")
             if pt == _ADD_NEW:
-                pt = st.text_input("New thought name (snake_case)", key=f"ptn_{c['post_id']}").strip()
-            notes = st.text_input("Notes (why this label)", key=f"nt_{c['post_id']}",
+                pt = st.text_input("New thought name (snake_case)", key=f"ptn_{pid}").strip()
+            notes = st.text_input("Notes (why this label)", key=f"nt_{pid}",
                                   placeholder="e.g. Official source + specific verifiable comparison")
             col1, col2 = st.columns(2)
-            if col1.button(f"✅ Relabel as {corrected_label.upper()}", key=f"rl_{c['post_id']}", type="primary"):
+            if col1.button(f"✅ Relabel as {corrected_label.upper()}", key=f"rl_{pid}", type="primary"):
                 if not pt:
                     st.warning("Pick or enter a thought (post_type) before relabeling.")
                 else:
-                    apply_relabel(DB_PATH, str(EVAL_CSV), c["post_id"], c["text"], corrected_label,
+                    apply_relabel(DB_PATH, str(EVAL_CSV), pid, c["text"], corrected_label,
                                   c["keyword_category"], post_type=pt, notes=notes)
-                    st.session_state["relabel_cands"] = None      # force a rescan
-                    st.toast(f"Relabeled → {corrected_label.upper()} ({pt}) + appended to eval set")
-                    st.rerun()
-            if col2.button("↩ Keep as is (model was right)", key=f"keep_{c['post_id']}"):
-                mark_reviewed_ok(DB_PATH, c["post_id"], c["has_claim"])
-                st.session_state["relabel_cands"] = None
-                st.toast("Marked reviewed; left unchanged")
+                    done[pid] = (f"✅ Label shifted to **{corrected_label.upper()}**. Appended to the eval set "
+                                 f"(`claim_eval.csv`) as a `{corrected_label}` example · thought `{pt}` — users now "
+                                 "see the corrected label, and it will shape the next evaluation run. "
+                                 "Scroll down to review the next one.")
+                    st.rerun()   # re-render THIS card as done; queue + position preserved (no rescan)
+            if col2.button("↩ Keep as is (model was right)", key=f"keep_{pid}"):
+                mark_reviewed_ok(DB_PATH, pid, c["has_claim"])
+                done[pid] = "↩ Kept as is — marked reviewed, nothing changed. Scroll down to the next one."
                 st.rerun()
 
 
@@ -534,12 +543,18 @@ def maintenance():
     if st.button("🔍 Scan for relabel candidates", type="primary"):
         with st.spinner(f"Assessing the top {scan} posts…"):
             st.session_state["relabel_cands"] = get_relabel_candidates(_trust_store(), DB_PATH, cfg, scan_limit=scan)
+        st.session_state["relabel_done"] = {}          # fresh scan → clear this session's done markers
     cands = st.session_state.get("relabel_cands")
     if cands is None:
         st.info("Click **Scan** to find candidates.")
         return
-    n = len(cands["opinion_to_claim"]) + len(cands["claim_to_opinion"])
-    st.markdown(f"**{n} posts awaiting review.**")
+    all_ids = [x["post_id"] for x in cands["opinion_to_claim"] + cands["claim_to_opinion"]]
+    done = st.session_state.get("relabel_done", {})
+    reviewed = sum(1 for pid in all_ids if pid in done)
+    remaining = len(all_ids) - reviewed
+    st.markdown(f"**{remaining} awaiting review**"
+                + (f" · {reviewed} reviewed this session ✅" if reviewed else "")
+                + "  ·  re-scan any time to refresh the list.")
     st.divider()
     _render_relabel_section(
         "🟠 Opinions that look like CLAIMS", cands["opinion_to_claim"], "claim",
