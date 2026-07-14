@@ -23,8 +23,6 @@ from climate_verifier.pipeline.claim_classifier import (
     classify_pending,
     classify_batch,
     classify_lean,
-    get_top_claims,
-    get_top_opinions,
     get_stats,
 )
 from climate_verifier.pipeline.evaluate import (
@@ -495,47 +493,6 @@ def classification_eval():
                 f"**{opinions_this_run} opinions** rejected."
             )
             st.rerun()
-
-    st.divider()
-
-    # Results tables — top claims vs opinions, with a rank criterion + link to the original post
-    st.subheader("🏆 Top posts")
-    ce_sort = st.selectbox("Rank by", list(_SORT_LABEL), format_func=lambda s: _SORT_LABEL[s], key="ce_sort")
-    left, right = st.columns(2)
-
-    with left:
-        st.markdown(f"**✅ Top 10 Claims**  ·  {_SORT_LABEL[ce_sort].lower()}")
-        claims = get_top_claims(DB_PATH, limit=10, sort_by=ce_sort)
-        if not claims:
-            st.info("No claims classified yet.")
-        else:
-            for i, c in enumerate(claims, 1):
-                with st.expander(f"#{i} · {c['source'].upper()} · {c['keyword_category']} · ❤️ {c['engagement']}"):
-                    st.markdown(f"**Post:** {c['text']}")
-                    st.markdown(f"**Author:** `@{c['author']}`  |  👥 {c['author_followers']:,} followers")
-                    if c.get("source") == "bluesky" and _bsky_url(c.get("post_id", "")):
-                        st.markdown(f"🔗 [Open the original Bluesky post — judge for yourself]({_bsky_url(c['post_id'])})")
-                    elif str(c.get("post_id", "")).startswith("http"):
-                        st.markdown(f"🔗 [Open the source article]({c['post_id']})")
-                    st.success(f"**Why it's a claim:** {c['reason']}")
-                    st.caption(f"❤️ {c['likes']}  🔁 {c['reposts']}  💬 {c['replies']}  🔗 {c['quotes']}  ·  {c['created_at'][:10]}")
-
-    with right:
-        st.markdown(f"**💬 Top 10 Opinions (Rejected)**  ·  {_SORT_LABEL[ce_sort].lower()}")
-        opinions = get_top_opinions(DB_PATH, limit=10, sort_by=ce_sort)
-        if not opinions:
-            st.info("No opinions classified yet.")
-        else:
-            for i, o in enumerate(opinions, 1):
-                with st.expander(f"#{i} · {o['source'].upper()} · {o['keyword_category']} · ❤️ {o['engagement']}"):
-                    st.markdown(f"**Post:** {o['text']}")
-                    st.markdown(f"**Author:** `@{o['author']}`  |  👥 {o['author_followers']:,} followers")
-                    if o.get("source") == "bluesky" and _bsky_url(o.get("post_id", "")):
-                        st.markdown(f"🔗 [Open the original Bluesky post — judge for yourself]({_bsky_url(o['post_id'])})")
-                    elif str(o.get("post_id", "")).startswith("http"):
-                        st.markdown(f"🔗 [Open the source article]({o['post_id']})")
-                    st.warning(f"**Why it was rejected:** {o['reason']}")
-                    st.caption(f"❤️ {o['likes']}  🔁 {o['reposts']}  💬 {o['replies']}  🔗 {o['quotes']}  ·  {o['created_at'][:10]}")
 
     st.divider()
 
