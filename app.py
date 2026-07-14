@@ -37,7 +37,9 @@ from climate_verifier.pipeline.embedder import (
     category_similarity_stats,
 )
 from climate_verifier.pipeline.evidence import get_store, assess_claim, assess_db_claims
-from climate_verifier.pipeline.relabel import get_relabel_candidates, apply_relabel, mark_reviewed_ok
+from climate_verifier.pipeline.relabel import (
+    get_relabel_candidates, apply_relabel, mark_reviewed_ok, eval_post_types,
+)
 from climate_verifier.ingestion.bluesky import fetch_post_by_url
 from climate_verifier.ingestion.store import get_last_ingestion_time, hours_since_last_ingestion
 
@@ -351,6 +353,9 @@ def _admin_authed() -> bool:
     return False
 
 
+_ADD_NEW = "➕ Add new thought…"
+
+
 def _render_relabel_section(title: str, items: list, corrected_label: str, note: str = ""):
     st.subheader(title)
     if note:
@@ -358,18 +363,31 @@ def _render_relabel_section(title: str, items: list, corrected_label: str, note:
     if not items:
         st.caption("None in the scanned set. ✅")
         return
+    types = eval_post_types(str(EVAL_CSV))          # FRESH read every rerun — never a stale list
     for c in items:
         with st.container(border=True):
             st.markdown(f"**Post:** {c['text'][:400]}")
             cur = "CLAIM" if c["has_claim"] else "OPINION"
             st.caption(f"Currently **{cur}** · @{c['author']} · {c['keyword_category']} · ❤️ {c['engagement']} "
                        f"· news: **{c['news_status']}**" + (f" · why: {c['why']}" if c['why'] else ""))
+            # The "thought" (post_type) that will be written to the eval set — pick an existing one
+            # for consistency, or add a new category. Notes = the specific reason for this label.
+            pt = st.selectbox("Thought (post_type)", types + [_ADD_NEW], key=f"pt_{c['post_id']}",
+                              help="The reasoning category this post exemplifies — keeps hand-labels consistent.")
+            if pt == _ADD_NEW:
+                pt = st.text_input("New thought name (snake_case)", key=f"ptn_{c['post_id']}").strip()
+            notes = st.text_input("Notes (why this label)", key=f"nt_{c['post_id']}",
+                                  placeholder="e.g. Official source + specific verifiable comparison")
             col1, col2 = st.columns(2)
             if col1.button(f"✅ Relabel as {corrected_label.upper()}", key=f"rl_{c['post_id']}", type="primary"):
-                apply_relabel(DB_PATH, str(EVAL_CSV), c["post_id"], c["text"], corrected_label, c["keyword_category"])
-                st.session_state["relabel_cands"] = None      # force a rescan
-                st.toast(f"Relabeled → {corrected_label.upper()} + appended to eval set")
-                st.rerun()
+                if not pt:
+                    st.warning("Pick or enter a thought (post_type) before relabeling.")
+                else:
+                    apply_relabel(DB_PATH, str(EVAL_CSV), c["post_id"], c["text"], corrected_label,
+                                  c["keyword_category"], post_type=pt, notes=notes)
+                    st.session_state["relabel_cands"] = None      # force a rescan
+                    st.toast(f"Relabeled → {corrected_label.upper()} ({pt}) + appended to eval set")
+                    st.rerun()
             if col2.button("↩ Keep as is (model was right)", key=f"keep_{c['post_id']}"):
                 mark_reviewed_ok(DB_PATH, c["post_id"], c["has_claim"])
                 st.session_state["relabel_cands"] = None
@@ -384,7 +402,26 @@ def maintenance():
     st.success("Signed in as admin.")
     st.caption("**Relabel review queue.** Evidence-nominated label mismatches. Confirming a relabel writes "
                "an **admin override** (users see the corrected label on refresh) **and** appends the "
-               "corrected `(post, label)` to the eval benchmark (`claim_eval.csv`). Users can never relabel.")
+               "corrected `(post, label, thought)` to the eval benchmark (`claim_eval.csv`). Users can never relabel.")
+    with st.expander("📖 Labeling guide — which *thought* (post_type) to pick"):
+        st.markdown(
+            "Pick the **reasoning category** the post exemplifies (not just claim/opinion) so hand-labels "
+            "stay consistent. Choose an existing one when it fits; add a new one only for a genuinely new pattern.\n\n"
+            "**CLAIM thoughts** — a specific, checkable assertion (true *or* false):\n"
+            "- `news_event` — named place + specific measurement/event\n"
+            "- `official_alert` — official source + verifiable warning/comparison\n"
+            "- `scientific_finding` — specific superlative + named period/metric\n"
+            "- `false_but_checkable` — specific mechanism/effect/location, structurally a claim *even if false*\n"
+            "- `denial_with_stat` — a denial that cites a checkable stat/source\n"
+            "- `mixed_emotion_fact` — emotion wrapped around a verifiable fact/warning\n\n"
+            "**OPINION thoughts** — no specific checkable assertion:\n"
+            "- `emotional_reaction` — feeling, no factual content\n"
+            "- `political_viewpoint` — stance, no verifiable claim\n"
+            "- `hyperbole_doom` — prediction without sourcing/evidence\n"
+            "- `vague_conspiracy` — accusation with no specific evidence\n"
+            "- `sarcasm_joke` / `rhetorical_question` — nothing asserted\n\n"
+            "**`real_data`** — provenance tag for real-ingested posts; use it only if none of the reasoning "
+            "types fit. **Notes** = the one-line *why* (e.g. *“official source + specific verifiable comparison”*).")
     scan = st.slider("Posts to scan (top by engagement)", 40, 300, 100, step=20)
     if st.button("🔍 Scan for relabel candidates", type="primary"):
         with st.spinner(f"Assessing the top {scan} posts…"):

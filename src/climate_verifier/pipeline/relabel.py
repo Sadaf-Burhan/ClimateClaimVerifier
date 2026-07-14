@@ -93,22 +93,40 @@ def set_admin_label(db_path: str, post_id: str, admin_label: int) -> None:
     con.close()
 
 
-def append_to_eval_csv(csv_path: str, post_text: str, expected_label: str,
-                       keyword_category: str = "") -> None:
-    """Append a corrected (post, label) row to the eval benchmark. Matches the existing header:
+def eval_post_types(csv_path: str) -> list[str]:
+    """Distinct `post_type` "thought" categories currently in the eval CSV, sorted. Read FRESH on
+    every call (no caching) so the admin dropdown always reflects the real file — never appends a
+    duplicate/typo'd category or works off a stale list."""
+    p = Path(csv_path)
+    if not p.exists():
+        return []
+    seen = set()
+    with open(p, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            t = (r.get("post_type") or "").strip()
+            if t:
+                seen.add(t)
+    return sorted(seen)
+
+
+def append_to_eval_csv(csv_path: str, post_text: str, expected_label: str, keyword_category: str = "",
+                       post_type: str = "", notes: str = "") -> None:
+    """Append a corrected (post, label, thought) row to the eval benchmark. Matches the header:
     post_text, expected_label, keyword_category, post_type, notes."""
     p = Path(csv_path)
     text = " ".join((post_text or "").split())          # flatten newlines for a clean CSV cell
     with open(p, "a", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow([text, expected_label, keyword_category, "admin_relabel",
-                                "admin-confirmed relabel from the scanner"])
+        csv.writer(f).writerow([text, expected_label, keyword_category,
+                                (post_type or "real_data").strip(),
+                                (notes or "admin-confirmed relabel").strip()])
 
 
-def apply_relabel(db_path: str, csv_path: str, post_id: str, post_text: str,
-                  corrected_label: str, keyword_category: str = "") -> None:
-    """Confirm a relabel: BOTH writes — the admin override (users see it) and the eval-CSV append."""
+def apply_relabel(db_path: str, csv_path: str, post_id: str, post_text: str, corrected_label: str,
+                  keyword_category: str = "", post_type: str = "", notes: str = "") -> None:
+    """Confirm a relabel: BOTH writes — the admin override (users see it) and the eval-CSV append
+    with the admin-chosen `post_type` (thought) + `notes`."""
     set_admin_label(db_path, post_id, 1 if corrected_label == "claim" else 0)
-    append_to_eval_csv(csv_path, post_text, corrected_label, keyword_category)
+    append_to_eval_csv(csv_path, post_text, corrected_label, keyword_category, post_type, notes)
 
 
 def mark_reviewed_ok(db_path: str, post_id: str, model_label: int) -> None:
