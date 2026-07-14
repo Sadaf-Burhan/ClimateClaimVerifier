@@ -14,7 +14,10 @@ evidence:                          # Week 6 — evidence matching (GDELT news co
   chroma_path: data/chroma_evidence   # persistent vector store (gitignored)
   top_k: 5                            # nearest GDELT articles retrieved per claim
   high_proximity: 0.60                # >= : published news covers a similar event  (HIGH)
-  low_proximity: 0.40                 # <  : no corroboration                       (NONE)
+  topic_proximity: 0.50               # >= : counts as a TOPIC MATCH in the reader UI. Below this a
+                                      #   retrieved article is a weak/noise neighbour (e.g. 0.42) and
+                                      #   reads as NO MATCH with the nearest headline shown for transparency.
+  low_proximity: 0.40                 # <  : display floor — articles below this aren't shown at all
   high_reach: 50                      # engagement >= this counts as "high reach" for the red flag
 
   # --- Region- and time-aware retrieval (Week 6 improvement) ----------------------

@@ -318,7 +318,7 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
                         followers: int = 0, domain: str = "", author: str = "",
                         citations: list[dict] | None = None, official: bool = False,
                         vision: dict | None = None, forecast: bool = False, high_reach: int = 50,
-                        eyewitness: bool = False) -> dict:
+                        eyewitness: bool = False, topic_proximity: float = 0.50) -> dict:
     """
     Plain-language, *suggestive* reader signal from the corroboration verdict, reach,
     source context, self-citations, official-source status, and (for gated edge cases) an
@@ -344,6 +344,18 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
     vision_supports = bool(vision and vision.get("image_type") == "real_photo"
                            and vision.get("depicts_claim") in ("yes", "partial"))
 
+    # DISPLAY status (decoupled from the red flag). TOPIC MATCH needs a REAL bar (`topic_proximity`),
+    # not merely clearing the display floor — a ~0.42 neighbour (e.g. an Alaska-fishing headline for a
+    # Florida-orange claim) is noise, so it reads as NO MATCH with the nearest headline shown, clearly
+    # labelled as only loosely related.
+    proximity = retrieval.get("proximity", 0.0)
+    if verdict == "corroborated":
+        news_status = "REPORTED"
+    elif proximity >= topic_proximity:
+        news_status = "TOPIC MATCH"
+    else:
+        news_status = "NO MATCH"
+
     if verdict == "corroborated" and cited:
         evidence_phrase = (f"A retrieved news article appears to report this event ({cited['domain']}) — "
                            "open the source to confirm it actually says so.")
@@ -358,14 +370,19 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
         evidence_phrase = (f"This post links {src_kind} ({credible_doms}) — that linked article is its "
                            "supporting evidence; open it to verify. An independent news search found no "
                            "additional coverage of this specific event, which does not weaken the cited source.")
-    elif n == 0:
+    elif news_status == "TOPIC MATCH":
+        evidence_phrase = (f"Retrieved news covers this topic but none report this specific claim "
+                           f"({n} related article{'s' if n != 1 else ''} below to judge). Absence of an exact "
+                           "match is not proof it did not happen — the retrieved news set is limited.")
+    elif n > 0:
+        evidence_phrase = (f"No retrieved news is a real match to this claim — the nearest "
+                           f"{n} headline{'s' if n != 1 else ''} below {'are' if n != 1 else 'is'} only loosely "
+                           "related (weak similarity), not about this claim. Absence is not proof it did not "
+                           "happen; the news corpus is limited.")
+    else:
         evidence_phrase = ("No published news in the retrieved set is even topically close to this claim — "
                            "no relevant coverage was found. Absence here is not proof it did not happen; "
                            "the news corpus is limited.")
-    else:
-        evidence_phrase = (f"Retrieved news covers this topic but none report this specific claim "
-                           f"({n} related article{'s' if n != 1 else ''} shown below to judge). Absence of an "
-                           "exact match is not proof it did not happen — the retrieved news set is limited.")
 
     if official:
         src_phrase = f"Source: a verified official source ({author or domain})."
@@ -400,18 +417,7 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
                 and source == "bluesky" and not treated_official and not credible_cite
                 and not vision_supports and not eyewitness_defused)
 
-    # DISPLAY status (decoupled from the red flag). The red flag stays on the strict `verdict`
-    # (only "corroborated"/HIGH-tier counts as support), but the user-facing label reflects whether
-    # any topically-related coverage was retrieved — so we never show "NO MATCH" above a list of
-    # clearly-related articles. A high-reach unverified post can still show TOPIC MATCH *and* a red
-    # flag (honest: related topic exists, but it does not support the specific claim).
     has_related = n > 0
-    if verdict == "corroborated":
-        news_status = "REPORTED"
-    elif verdict == "partial" or has_related:
-        news_status = "TOPIC MATCH"
-    else:
-        news_status = "NO MATCH"
 
     parts = [evidence_phrase, src_phrase]
     if cite_phrase:
@@ -477,7 +483,8 @@ def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int
     signal = build_reader_signal(retrieval, corro, engagement, source, followers=followers,
                                  domain=domain, author=author, citations=citations,
                                  official=official, vision=vision, forecast=forecast,
-                                 high_reach=ev.get("high_reach", 50), eyewitness=eyewitness)
+                                 high_reach=ev.get("high_reach", 50), eyewitness=eyewitness,
+                                 topic_proximity=ev.get("topic_proximity", 0.50))
     return {"retrieval": retrieval, "corroboration": corro, "citations": citations,
             "official": official, "vision": vision, "signal": signal}
 

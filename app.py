@@ -336,12 +336,17 @@ def _render_trust(store, post: dict, classify_first: bool):
             st.caption("The **number on the left** is a topic-similarity score (0–1): cosine similarity "
                        "between your claim and the article headline. Higher = closer wording/topic — it is "
                        "**not** proof they describe the same event (that's what the verdict above judges).")
-        else:  # TOPIC MATCH — related coverage, but not confirmed to report this specific claim
+        elif _ns == "TOPIC MATCH":
             st.markdown("#### 🔍 Related news on this topic — open to judge for yourself")
             st.caption("Shown for transparency: these are the nearest headlines by wording/topic. They "
                        "cover the same **subject**, but none is confirmed to report **this specific claim**. "
                        "The **number on the left** is the topic-similarity score (0–1) — close in topic is "
                        "not the same as reporting your exact claim.")
+        else:  # NO MATCH — only weak/noise neighbours cleared the display floor
+            st.markdown("#### 🔍 Nearest headlines the search found — likely **not** about your claim")
+            st.caption("**No real match was found.** These are just the closest headlines by wording — the "
+                       "similarity is weak, so they're probably about a *different* subject (shown only for "
+                       "transparency). The **number on the left** is the topic-similarity score (0–1).")
         claim_loc = a["retrieval"].get("location")
         if claim_loc:
             st.caption(f"📍 Region-aware retrieval: read your claim as **{claim_loc}** and folded that into "
