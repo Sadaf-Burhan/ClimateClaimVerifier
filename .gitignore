@@ -36,6 +36,10 @@ data/chroma_evidence/
 # distinguishable — see config.yaml `evaluation`.
 !data/claim_eval.csv
 !data/claim_eval_gold.csv
+# The THIRD benchmark: the reader SIGNAL (red flag), not the classifier. Tracked; Colab clones it.
+!data/signal_eval.csv
+# generated scorecards (regenerated each run)
+data/signal_eval_results.json
 
 # Week-7 image eval: the labels.jsonl benchmark IS tracked, but the screenshot images are
 # NOT (they're third-party screenshots — keep binaries/copyright out of the public repo).

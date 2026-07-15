@@ -481,18 +481,27 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
 def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int = 0,
                  source: str = "bluesky", followers: int = 0, domain: str = "",
                  author: str = "", vision: dict | None = None, cfg: dict | None = None,
-                 claim_date: str = "", external_url: str = "") -> dict:
+                 claim_date: str = "", external_url: str = "",
+                 retrieval: dict | None = None) -> dict:
     """Full Stage-4 assessment: retrieve (region/time-aware) → corroborate → reader signal,
     factoring self-citations, official-source status, and (edge cases) an image signal
     into the red flag. The LLM corroboration re-rank is optional (`evidence.use_llm_rerank`):
-    when off, the verdict comes from region-aware retrieval alone."""
+    when off, the verdict comes from region-aware retrieval alone.
+
+    `retrieval` overrides the store lookup with a fixed result (and then `store` may be None). The
+    signal eval needs this: the red flag depends on what the GDELT corpus happens to hold, which
+    changes daily, so "expected red flag" is only stable ground truth when the retrieval side is
+    held constant. Pinning it to the no-corroboration case isolates the SOURCE suppressors
+    (official / credible cite / vision save / eyewitness) — i.e. the actual
+    "precision is recovered downstream" claim."""
     cfg = cfg or _load_cfg()
     ev = cfg.get("evidence", {})
-    retrieval = store.evidence_for_claim(claim_text, k=ev.get("top_k", 5),
-                                         high=ev.get("high_proximity", 0.60),
-                                         low=ev.get("low_proximity", 0.40),
-                                         claim_date=claim_date,
-                                         date_window_days=ev.get("date_window_days", 0))
+    if retrieval is None:
+        retrieval = store.evidence_for_claim(claim_text, k=ev.get("top_k", 5),
+                                             high=ev.get("high_proximity", 0.60),
+                                             low=ev.get("low_proximity", 0.40),
+                                             claim_date=claim_date,
+                                             date_window_days=ev.get("date_window_days", 0))
     if ev.get("use_llm_rerank", False):
         corro = corroboration_check(claim_text, retrieval["matches"], model=cfg["model"]["name"])
     else:
