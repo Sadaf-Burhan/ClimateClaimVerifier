@@ -229,9 +229,22 @@ def normalize_extraction(out: dict | None) -> dict | None:
     if platform:
         platform = platform.lower()
     claim = _clean_str(out.get("claim_text"))
+    handle = _clean_str(out.get("author_handle"))
+    cite = _clean_str(out.get("visible_citation"))
+    eng_vals = [_clean_int(eng.get(k)) for k in ("likes", "reposts", "replies")]
+    # A result with NOTHING read — no claim, no handle, no citation, no engagement — is not a
+    # finding, it's a failed extraction (usually the corrector echoing its own template). Returning
+    # it would look like "the image has no text" and get a real post rejected by the social-post
+    # gate, so fail honestly instead and let the caller say "couldn't read the image".
+    if claim is None and handle is None and cite is None and not any(v is not None for v in eng_vals):
+        return None
     hrt = out.get("has_readable_text")
     if hrt is None:
         hrt = claim is not None
+    # Can't have "readable text" while having read no text — the model asserts this pair
+    # inconsistently, and downstream gates on it.
+    if claim is None:
+        hrt = False
     return {
         "claim_text": claim,
         "has_readable_text": bool(hrt),
@@ -251,18 +264,28 @@ def normalize_extraction(out: dict | None) -> dict | None:
 
 def _correct_extraction(raw: str, model: str) -> dict | None:
     """Reformat malformed extraction output to the schema with a cheap TEXT model (never sees
-    the image). It only reshapes the JSON it is given — it must not add facts."""
+    the image). It only reshapes the JSON it is given — it must not add facts.
+
+    The placeholders below are deliberately NOT valid JSON (`<...>`). An earlier version showed a
+    template that was itself parseable with every value already null and has_readable_text=true —
+    so when the 3B corrector simply ECHOED the template (which small models do), _parse_json
+    accepted it and we silently produced a confident all-null extraction: no claim, no engagement,
+    but has_readable_text=true. That looked like "the image is unreadable" and got real posts
+    REJECTED by the social-post gate. Now an echo fails to parse and returns None, so the caller
+    reports an honest extraction failure instead of a fabricated empty result."""
     try:
         resp = ollama.chat(model=model, options={"temperature": 0}, messages=[{
             "role": "user",
-            "content": ("Reformat the following into ONLY this JSON, keeping the values verbatim and "
-                        "using null for anything missing (do NOT invent values):\n"
-                        '{"claim_text": null, "has_readable_text": true, "image_type": '
-                        '"real_photo|meme_or_cartoon|screenshot|infographic|ai_suspected|other", '
-                        '"depicts_claim": "yes|partial|no|unrelated", "author_handle": null, '
-                        '"platform": null, "engagement": {"likes": null, "reposts": null, "replies": null}, '
-                        '"visible_citation": null, "description": ""}\n'
-                        "No markdown, no extra text:\n\n" + str(raw))}])
+            "content": ("Reformat the text below into ONLY this JSON shape. Copy values VERBATIM from "
+                        "the text; use null for anything genuinely absent. Do NOT invent values and do "
+                        "NOT copy the placeholders — replace every <...> with a real value or null.\n"
+                        '{"claim_text": <transcribed text or null>, "has_readable_text": <true or false>, '
+                        '"image_type": <one of: real_photo|meme_or_cartoon|screenshot|infographic|ai_suspected|other>, '
+                        '"depicts_claim": <one of: yes|partial|no|unrelated>, "author_handle": <handle or null>, '
+                        '"platform": <platform or null>, "engagement": {"likes": <int or null>, '
+                        '"reposts": <int or null>, "replies": <int or null>}, '
+                        '"visible_citation": <source or null>, "description": <one short sentence>}\n'
+                        "No markdown, no extra text. Text to reformat:\n\n" + str(raw))}])
         return _parse_json(resp["message"]["content"])
     except Exception:
         return None

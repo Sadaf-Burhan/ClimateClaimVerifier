@@ -45,6 +45,20 @@ uv run python scripts/eval_image_extraction.py --limit 5      # first N rows
 uv run python scripts/eval_image_extraction.py --no-assess    # skip the RAG/news-status check (no ChromaDB)
 ```
 
+## `claim_text` labelling policy (settled 2026-07-15 — read before labelling)
+Label **the primary claim-bearing text that is actually VISIBLE**, wherever it lives:
+- Usually that's the **post's body/caption** (Yale, Melghat, the NOAA report) — *not* a short slogan
+  overlaid on the picture.
+- For an **image-carried claim** it's the **card/infographic text** and *not* the caption, because the
+  caption is only vibes (the DOGE case: caption "RESIST TYRANNY", claim on the card).
+- **Never include text hidden behind a "See more"/"Show more" fold** — the model can't see it, so
+  scoring against it measures nothing.
+
+The first pass got this wrong (labelled overlay slogans, truncated bodies, and text past the fold),
+which read as model failure when the model was right: mean sim 0.40 with **classify agreement at
+100%**. If the transcription drifts but the claim still classifies identically, the difference is
+cosmetic — the primary bar is what counts.
+
 ## Accept vs reject rows
 The upload path only assesses **social-media posts**, whose reach (engagement) is the core signal.
 So a row is one of two kinds, decided by its `expected.engagement`:
