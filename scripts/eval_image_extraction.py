@@ -42,8 +42,11 @@ NEAR_EXACT  = 0.85          # claim_text similarity at/above this counts as a ne
 
 
 def _norm(s: str | None) -> str:
-    """Lowercase, strip punctuation/whitespace runs — for a forgiving text comparison."""
-    return re.sub(r"[^a-z0-9 ]", " ", (s or "").lower()).strip()
+    """Lowercase, drop punctuation, and COLLAPSE whitespace runs — for a forgiving comparison.
+    The collapse matters: the model preserves the post's real newlines while a CSV/JSON label
+    flattens them, so without it an identical transcription scores as drift purely on how many
+    spaces a paragraph break became."""
+    return " ".join(re.sub(r"[^a-z0-9 ]", " ", (s or "").lower()).split())
 
 
 def _text_sim(a: str | None, b: str | None) -> float:

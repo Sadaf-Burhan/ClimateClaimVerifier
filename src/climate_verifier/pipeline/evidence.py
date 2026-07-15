@@ -274,6 +274,17 @@ def is_official(author: str, gdelt_domain: str, official: list[str]) -> bool:
     return False
 
 
+# Shared negative guard for BOTH reframes below. A framing that would otherwise defuse the red flag
+# (first-person testimony, or a future warning) does NOT excuse a causal/mechanistic/conspiratorial
+# assertion — the "casualness is a trap" rule. Those ARE exactly the claims a red flag targets, so
+# "I saw them spraying chemtrails" and "they're warning us about the geoengineering agenda" must both
+# still flag. Guarding forecast as well as eyewitness is what makes the forecast suppressor safe.
+_CONSPIRACY_RE = re.compile(
+    r"\b(chemtrail|haarp|geoengineer|cloud seed|weather (?:manipulat|control|modif)|"
+    r"hoax|cover.?up|coverup|conspiracy|hiding|they'?re (?:spray|hiding|doing)|government|"
+    r"agenda|spraying|caused by|because of|proof|exposed|depopulat|deep state|"
+    r"scientists (?:hiding|lying)|man.?made|deliberate)\b", re.I)
+
 _FORECAST_RE = re.compile(
     r"\b(warn(?:ing|s|ed)?|forecast|expected|about to|braces? for|on track to|"
     r"this (?:weekend|week)|upcoming|will (?:hit|bring|be|cause)|advisory|watch|outlook|"
@@ -282,8 +293,16 @@ _FORECAST_RE = re.compile(
 
 def looks_like_forecast(text: str) -> bool:
     """Heuristic: does the claim describe a FUTURE/predicted event (a warning/forecast)?
-    Such claims can't be corroborated as having happened — news reports the warning, not the event."""
-    return bool(_FORECAST_RE.search(text or ""))
+    Such claims can't be corroborated as having happened — news reports the warning, not the event,
+    so GDELT-silence is uninformative and the reach-vs-support mismatch does not apply.
+
+    Conspiracy-guarded, exactly like `looks_like_eyewitness`: the forecast vocabulary is broad
+    ("warning", "expected", "about to"), so without this guard a conspiracy post that merely uses
+    the word "warning" would defuse its own red flag."""
+    t = text or ""
+    if _CONSPIRACY_RE.search(t):
+        return False
+    return bool(_FORECAST_RE.search(t))
 
 
 # First-person, locally-anchored eyewitness observation: the poster reports a condition in
@@ -295,13 +314,6 @@ _LOCAL_ANCHOR_RE = re.compile(
     r"house|home|sky|skies|view|street|region|county)\b|"
     r"\b(right here|out(?:side)? my window|overhead|above (?:me|us|my)|"
     r"in my (?:area|town|city|neighbou?rhood|region)|where i (?:live|am))\b", re.I)
-# Negative guard — a first-person frame does NOT excuse a causal/mechanistic/conspiratorial
-# assertion (the "casualness is a trap" rule): those ARE the newsworthy claims a red flag targets.
-_NOT_EYEWITNESS_RE = re.compile(
-    r"\b(chemtrail|haarp|geoengineer|cloud seed|weather (?:manipulat|control|modif)|"
-    r"hoax|cover.?up|coverup|conspiracy|hiding|they'?re (?:spray|hiding|doing)|government|"
-    r"agenda|spraying|caused by|because of|proof|exposed|depopulat|deep state|"
-    r"scientists (?:hiding|lying)|man.?made|deliberate)\b", re.I)
 
 
 def looks_like_eyewitness(text: str) -> bool:
@@ -309,7 +321,7 @@ def looks_like_eyewitness(text: str) -> bool:
     causal/conspiratorial assertion. Such a claim is testimony news won't corroborate by nature —
     absence of a news match is expected, so it should be reframed, not red-flagged."""
     t = text or ""
-    if _NOT_EYEWITNESS_RE.search(t):
+    if _CONSPIRACY_RE.search(t):
         return False
     return bool(_FIRST_PERSON_RE.search(t) and _LOCAL_ANCHOR_RE.search(t))
 
@@ -436,13 +448,21 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
     # mismatch. Only defuses when there is genuinely no corroboration (verdict none); if news DID
     # match, the normal reading stands.
     eyewitness_defused = eyewitness and verdict == "none"
+    # A FORECAST/warning about a future event cannot have been reported as having happened, so news
+    # silence is uninformative here — the same logic that defuses eyewitness testimony. This was
+    # always the documented design ("the flag is not raised for ... forecasts") but the flag never
+    # actually checked it; the signal eval (scripts/eval_signal.py) caught the false alarm.
+    # `looks_like_forecast` is conspiracy-guarded, so "they're warning us about chemtrails" still flags.
+    forecast_defused = forecast and verdict == "none"
 
     # Red flag ONLY when the reach-vs-support mismatch is real: high reach, no corroboration,
     # unverified social account, NOT official (directly or via reshare), NO credible cite,
-    # NOT rescued by a real on-the-ground photo, and NOT a hyperlocal eyewitness observation.
+    # NOT rescued by a real on-the-ground photo, NOT a hyperlocal eyewitness observation, and
+    # NOT a warning about something that hasn't happened yet.
     red_flag = (engagement >= high_reach and verdict == "none"
                 and social and not treated_official and not credible_cite
-                and not vision_supports and not eyewitness_defused)
+                and not vision_supports and not eyewitness_defused
+                and not forecast_defused)
 
     has_related = n > 0
 
