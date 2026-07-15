@@ -19,11 +19,44 @@ Nominations run both directions:
 """
 
 import csv
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 from climate_verifier.pipeline.evidence import assess_claim
+
+
+def _norm_words(s: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9 ]", " ", (s or "").lower()).split())
+
+
+def verbatim_headline_domain(text: str, external_title: str, external_url: str,
+                            credible_domains: list[str]) -> str:
+    """A news outlet posting its OWN story: the post's words ARE the headline of the credible
+    article it links. Returns that domain, or "" if it isn't the case.
+
+    Why this is a nomination signal and NOT a classifier input: the headline and the post text are
+    the SAME string, so there is no extra information to give the classifier — it already read those
+    exact words. This is *provenance*: a credible outlet republishing its own headline is reporting,
+    not commentary, which makes a CLAIM label likely. It stays a NOMINATION because the inference is
+    only probabilistic — op-ed headlines are verbatim headlines too ("Why we must act on climate" is
+    a real Guardian headline and an opinion). Evidence nominates; the human disposes.
+    """
+    t = _norm_words(text)
+    if not t or not (external_title or "").strip():
+        return ""
+    # Drop a trailing site-name suffix ("… | Extreme heat - Bytes Europe") before matching.
+    core = _norm_words(re.split(r"\s+[-|]\s+", external_title)[0])
+    if len(core.split()) < 4:                    # too short to be a distinctive headline
+        return ""
+    if core not in t:                            # the headline must appear verbatim in the post
+        return ""
+    dom = re.sub(r"^https?://", "", (external_url or ""), flags=re.I).split("/")[0].lower()
+    dom = dom[4:] if dom.startswith("www.") else dom
+    if not dom:
+        return ""
+    return dom if any(dom == d or dom.endswith("." + d) for d in credible_domains) else ""
 
 
 def ensure_admin_columns(conn: sqlite3.Connection) -> None:
@@ -44,8 +77,8 @@ def get_relabel_candidates(store, db_path: str, cfg: dict, scan_limit: int = 100
     con.row_factory = sqlite3.Row
     ensure_admin_columns(con)
     rows = con.execute("""
-        SELECT p.post_id, p.text, p.author, p.author_followers, p.external_url, p.keyword_category,
-               c.has_claim, c.admin_label,
+        SELECT p.post_id, p.text, p.author, p.author_followers, p.external_url, p.external_title,
+               p.keyword_category, c.has_claim, c.admin_label,
                (p.likes + p.reposts + p.replies + p.quotes) AS engagement
         FROM posts p JOIN classifications c ON p.post_id = c.post_id
         WHERE p.source = 'bluesky'
@@ -53,6 +86,7 @@ def get_relabel_candidates(store, db_path: str, cfg: dict, scan_limit: int = 100
     """, (scan_limit,)).fetchall()
     con.close()
 
+    credible = cfg.get("evidence", {}).get("citation_domains", [])
     to_claim, to_opinion = [], []
     for r in rows:
         if r["admin_label"] is not None:          # already reviewed by the admin
@@ -69,12 +103,19 @@ def get_relabel_candidates(store, db_path: str, cfg: dict, scan_limit: int = 100
             why.append("news reports this event")
         if s.get("treated_official"):
             why.append("official source")
-        if s.get("credible_cite"):
+        # A credible outlet posting its own headline verbatim: a sharper reason than the generic
+        # "credible cited source" it would otherwise fire as, so it replaces it rather than stacking.
+        vdom = verbatim_headline_domain(r["text"], r["external_title"], r["external_url"], credible)
+        if vdom:
+            why.append(f"post text IS the headline of its own linked article ({vdom}) — reporting, "
+                       "not commentary")
+        elif s.get("credible_cite"):
             why.append("credible cited source")
         cand = {"post_id": r["post_id"], "text": r["text"], "author": r["author"] or "",
                 "engagement": r["engagement"], "keyword_category": r["keyword_category"] or "",
                 "external_url": r["external_url"] or "", "has_claim": r["has_claim"],
-                "news_status": s["news_status"], "why": ", ".join(why)}
+                "news_status": s["news_status"], "why": ", ".join(why),
+                "verbatim_headline": vdom}
         if r["has_claim"] == 0 and why:                       # OPINION but evidence contradicts
             to_claim.append(cand)
         elif r["has_claim"] == 1 and not why and s["news_status"] == "NO MATCH":  # CLAIM, no support

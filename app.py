@@ -11,9 +11,12 @@ Base-vs-Adapter (Week 5): method / analysis tabs.
 Run:  uv run streamlit run app.py
 """
 
+import csv
+import io
 import json
 import re
 import sqlite3
+import subprocess
 import streamlit as st
 import yaml
 import pandas as pd
@@ -183,6 +186,58 @@ def _render_health_sidebar():
         if status == "fail" and rec.get("error"):
             line += f" — {str(rec['error'])[:38]}"
         st.sidebar.caption(line)
+
+
+def _eval_set_status() -> dict:
+    """Benchmark freshness — three numbers that SHOULD agree and silently don't:
+      local_n     — rows in the working-copy `claim_eval.csv` (what your relabels wrote)
+      committed_n — rows in the COMMITTED csv (what Colab clones and actually evaluates)
+      last_eval_n — `n` on the newest drift-log entry (what the last eval really ran on)
+    A relabel only reaches the drift chart once it is BOTH committed AND re-evaluated on the GPU."""
+    local_n = committed_n = last_eval_n = None
+    try:
+        with open(EVAL_CSV, newline="", encoding="utf-8") as f:
+            local_n = sum(1 for _ in csv.DictReader(f))
+    except Exception:
+        pass
+    try:
+        out = subprocess.run(["git", "show", f"HEAD:{EVAL_CSV.as_posix()}"],
+                             capture_output=True, text=True, encoding="utf-8", timeout=5)
+        if out.returncode == 0:
+            committed_n = sum(1 for _ in csv.DictReader(io.StringIO(out.stdout)))
+    except Exception:
+        pass                       # not a git checkout / git unavailable — just skip this check
+    hist = load_eval_history()
+    if hist:
+        try:
+            last_eval_n = int(hist[-1].get("n") or 0) or None
+        except Exception:
+            pass
+    return {"local_n": local_n, "committed_n": committed_n, "last_eval_n": last_eval_n}
+
+
+def _render_eval_freshness():
+    """Is the drift number on screen actually measured on the CURRENT benchmark? A relabel appends
+    to `claim_eval.csv` immediately, but the eval only re-runs on the Colab GPU pass, and that pass
+    only ever sees the COMMITTED csv. Both gaps are invisible from the UI — surface them."""
+    s = _eval_set_status()
+    local_n, committed_n, last_n = s["local_n"], s["committed_n"], s["last_eval_n"]
+    if not local_n:
+        return
+    msgs = []
+    if last_n and local_n != last_n:
+        msgs.append(f"📊 The benchmark now has **{local_n}** labeled posts, but the last evaluation ran "
+                    f"on **{last_n}** — **{abs(local_n - last_n)} label(s) added since**. The numbers "
+                    "below are stale for the current set: **re-run the Colab GPU maintenance pass** to "
+                    "refresh them (evaluation is GPU-only; the app can't run it).")
+    if committed_n is not None and local_n != committed_n:
+        msgs.append(f"⚠️ **{local_n - committed_n} relabel(s) are not committed.** Colab clones the "
+                    f"benchmark from git, so it would evaluate **{committed_n}** rows — your newest "
+                    "labels won't count until you commit + push `data/claim_eval.csv`.")
+    if msgs:
+        st.warning("\n\n".join(msgs))
+    elif last_n:
+        st.success(f"✅ Benchmark in sync — {local_n} labeled posts, matching the last evaluation.")
 
 
 def _render_drift():
@@ -623,6 +678,9 @@ def maintenance():
             "stay consistent. Choose an existing one when it fits; add a new one only for a genuinely new pattern.\n\n"
             "**CLAIM thoughts** — a specific, checkable assertion (true *or* false):\n"
             "- `news_event` — named place + specific measurement/event\n"
+            "- `news_headline_verbatim` — the post text IS the headline of the credible article it "
+            "links (an outlet posting its own story: reporting, not commentary). A known classifier "
+            "blind spot — worth its own bucket so the error breakdown shows it.\n"
             "- `official_alert` — official source + verifiable warning/comparison\n"
             "- `scientific_finding` — specific superlative + named period/metric\n"
             "- `false_but_checkable` — specific mechanism/effect/location, structurally a claim *even if false*\n"
@@ -663,6 +721,10 @@ def maintenance():
         "Classified CLAIM but nothing corroborates it. **Lower confidence** — the headline-only corpus "
         "means real claims often lack a match, so review carefully.")
 
+    st.divider()
+    # Relabeling is what grows the benchmark, so this is where the admin most needs to see that a
+    # relabel hasn't counted yet (uncommitted, or no GPU eval since).
+    _render_eval_freshness()
     st.divider()
     _render_static_eval()   # point-in-time eval lives here (admin); the drift trend is in Evaluation
 
@@ -904,6 +966,7 @@ def classification_eval():
         f"move here reflects real drift. Target: **recall on CLAIM ≥ {CLAIM_RECALL_TARGET:.0%}**. "
         "The point-in-time run (confusion matrix, breakdowns) lives in **🔧 Maintenance**."
     )
+    _render_eval_freshness()   # are these numbers even measured on the current benchmark?
     _render_drift()
 
 
