@@ -38,6 +38,9 @@ from climate_verifier.pipeline.embedder import (
     category_similarity_stats,
 )
 from climate_verifier.pipeline.evidence import get_store, assess_claim, assess_db_claims
+from climate_verifier.pipeline.vision import (
+    extract_from_image, screenshot_signal_inputs, looks_like_social_post,
+)
 from climate_verifier.pipeline.relabel import (
     get_relabel_candidates, apply_relabel, mark_reviewed_ok, eval_post_types,
 )
@@ -55,6 +58,8 @@ LLM_BATCH_SIZE = cfg["model"].get("llm_batch_size", 16)
 # Week 5 comparison: the LoRA adapter, registered in Ollama as a GGUF model.
 ADAPTER_MODEL  = cfg["model"].get("adapter_name", "qwen2.5-3b-claim-lora")
 EMBED_MODEL    = cfg["embedding"]["model_name"]
+VISION_MODEL      = cfg["vision"]["model"]                          # qwen2.5vl:7b — the image-input path (GPU)
+VISION_CORRECTOR  = cfg["vision"].get("corrector_model", "qwen2.5:3b")
 EVAL_CSV       = Path(cfg["evaluation"]["claim_eval_csv"])
 CLAIM_RECALL_TARGET = float(cfg["evaluation"]["claim_recall_target"])
 PAIRS_CSV      = Path("data/embedding_pairs.csv")
@@ -236,8 +241,8 @@ def _render_drift():
 
 
 def _render_trust(store, post: dict, classify_first: bool):
-    """Full trust panel for one post: classification → corroboration + credible sources →
-    reader signal → verification links. Surfaces signals; never asserts truth."""
+    """Full trust panel for one Bluesky post: header + links → shared assessment body.
+    Surfaces signals; never asserts truth."""
     text = post["text"]
     st.markdown(f"**Post:** {_linkify_post(text, post.get('external_url', ''))}")
     url = _bsky_url(post.get("post_id", ""))
@@ -257,11 +262,6 @@ def _render_trust(store, post: dict, classify_first: bool):
         is_claim, reason = cl["has_claim"], cl["reason"]
     else:
         is_claim, reason = post.get("has_claim", 1) == 1, post.get("reason", "")
-    (st.info if is_claim else st.warning)(
-        f"**Classification: {'CLAIM' if is_claim else 'OPINION'}** — {reason}")
-    if not is_claim:
-        st.caption("Opinions have no specific factual event to corroborate on their own — but strong "
-                   "evidence below can flag a claim the classifier missed (see the check below).")
 
     vision = None
     if post.get("vision_signal"):
@@ -270,11 +270,30 @@ def _render_trust(store, post: dict, classify_first: bool):
         except Exception:
             vision = None
 
+    _render_assessment_body(
+        store, text=text, engagement=int(post.get("engagement", 0)), source="bluesky",
+        followers=post.get("author_followers", 0) or 0, author=post.get("author", "") or "",
+        external_url=post.get("external_url", "") or "", vision=vision,
+        is_claim=is_claim, reason=reason)
+
+
+def _render_assessment_body(store, *, text: str, engagement: int, source: str, followers: int,
+                            author: str, external_url: str, vision: dict | None,
+                            is_claim: bool, reason: str):
+    """Shared assessment render used by BOTH the Bluesky-link path and the uploaded-screenshot
+    path: classification verdict → missed-claim nomination → reader signal → retrieved evidence.
+    Source-agnostic — the only difference between the two paths is the header their callers draw
+    and the `source` they pass (which drives the unverified-source wording and the red flag)."""
+    (st.info if is_claim else st.warning)(
+        f"**Classification: {'CLAIM' if is_claim else 'OPINION'}** — {reason}")
+    if not is_claim:
+        st.caption("Opinions have no specific factual event to corroborate on their own — but strong "
+                   "evidence below can flag a claim the classifier missed (see the check below).")
+
     with st.spinner("Retrieving news + checking corroboration…"):
-        a = assess_claim(store, text, engagement=int(post.get("engagement", 0)), source="bluesky",
-                         followers=post.get("author_followers", 0) or 0,
-                         author=post.get("author", "") or "", vision=vision, cfg=cfg,
-                         external_url=post.get("external_url", "") or "")
+        a = assess_claim(store, text, engagement=int(engagement), source=source,
+                         followers=followers or 0, author=author or "", vision=vision, cfg=cfg,
+                         external_url=external_url or "")
     sig, corro = a["signal"], a["corroboration"]
 
     # Runtime relabel nomination: an OPINION whose evidence contradicts the label (news covers the
@@ -363,6 +382,73 @@ def _render_trust(store, post: dict, classify_first: bool):
             title = f"[{m['title'][:90]}]({u})" if u else m["title"][:90]
             loc = f" · 📍 {m['location']}" if m.get("location") else ""
             st.markdown(f"- `{m['similarity']:.3f}` · **{m['domain']}**{loc} · {m.get('date','')} · {title}{mark}")
+
+
+def _render_image_trust(store, extracted: dict, image_bytes: bytes, extra_text: str = ""):
+    """Week 7 image-INPUT path: show the uploaded screenshot, GATE it to real social posts (must
+    show engagement), then run the SAME assessment body as the Bluesky path. There is no canonical
+    post to open, so the image itself + any visible citation stand in for the link, and the whole
+    reading is labelled degraded-fidelity (best-effort OCR of off-platform content)."""
+    st.image(image_bytes, caption="Uploaded screenshot", use_container_width=True)
+
+    # ── Gate: must be a social-media post (visible engagement). Reject anything else with guidance. ──
+    if not looks_like_social_post(extracted):
+        st.error("🚫 **This isn't a social-media post the scanner can assess.** It found **no visible "
+                 "engagement** (likes / reposts / comments). The scanner surfaces the **reach-vs-support** "
+                 "mismatch of posts, so it needs a screenshot of an actual post showing its engagement. "
+                 "Bare photos, satellite/comparison images, infographics, memes and illustrations aren't "
+                 "accepted — upload a screenshot of the post itself, including its like/repost/comment counts.")
+        with st.expander("What the vision model saw (why it was rejected)"):
+            st.markdown(f"**Image type:** {extracted.get('image_type')} · "
+                        f"platform: {extracted.get('platform') or '—'}")
+            if extracted.get("claim_text"):
+                st.markdown(f"**Text read:** {extracted['claim_text']}")
+            if extracted.get("description"):
+                st.caption(f"Description: {extracted['description']}")
+            st.caption("No like / repost / comment count was found, so this doesn't qualify as a post.")
+        return
+
+    st.info("🖼️ **Degraded-fidelity path.** This is an off-platform screenshot: the text was read by a "
+            "vision model (OCR) and there's no original post to open and verify. Treat the transcription "
+            "as best-effort and these signals as **lower-confidence** than the Bluesky-link path.")
+
+    with st.expander("What the vision model read from the image", expanded=True):
+        eng = extracted.get("engagement") or {}
+        def _n(v):
+            return v if v is not None else "—"
+        c1, c2 = st.columns(2)
+        c1.markdown(f"**Platform:** {extracted.get('platform') or '—'}")
+        c1.markdown(f"**Author:** {extracted.get('author_handle') or '—'}")
+        c2.markdown(f"**Image type:** {extracted.get('image_type')}  ·  depicts_claim={extracted.get('depicts_claim')}")
+        c2.markdown(f"**Engagement (read):** ❤️ {_n(eng.get('likes'))} · 🔁 {_n(eng.get('reposts'))} · "
+                    f"💬 {_n(eng.get('replies'))}")
+        if extracted.get("visible_citation"):
+            st.markdown(f"**Visible citation:** {extracted['visible_citation']}")
+        if extracted.get("description"):
+            st.caption(f"Description: {extracted['description']}")
+        st.caption("Fields shown as **—** were not clearly legible — the model is told to return null "
+                   "rather than guess (a fabricated handle or count would be the worst failure).")
+
+    # The claim = what OCR read, plus any post text the user pasted (for a screenshot that truncates
+    # a long post with a 'See more'). The engagement/source/vision still come from the image.
+    claim_text = (extracted.get("claim_text") or "").strip()
+    if extra_text:
+        claim_text = (claim_text + " " + extra_text).strip()
+    if not claim_text:
+        st.warning("📄 **Couldn't read a claim from this post.** No legible claim text was found and no "
+                   "text was added. If the post's text is cut off, paste it in the box above and re-run.")
+        return
+
+    if extra_text:
+        st.caption("📝 Using the screenshot text **plus** the post text you added.")
+    st.markdown(f"**Transcribed claim:** {claim_text}")
+    inp = screenshot_signal_inputs(extracted)
+    with st.spinner("Classifying claim vs opinion…"):
+        cl = classify(claim_text, model=MODEL)
+    _render_assessment_body(
+        store, text=claim_text, engagement=inp["engagement"], source="uploaded_screenshot",
+        followers=0, author=inp["author"], external_url=inp["external_url"], vision=inp["vision"],
+        is_claim=cl["has_claim"], reason=cl["reason"])
 
 
 def _admin_authed() -> bool:
@@ -614,7 +700,8 @@ def trust_checker():
                    "(sidebar → Course demos).")
         return
 
-    tab_paste, tab_list = st.tabs(["📋 Paste a post", "🏆 Pick from top posts"])
+    tab_paste, tab_list, tab_photo = st.tabs(
+        ["📋 Paste a post", "🏆 Pick from top posts", "🖼️ Upload a screenshot"])
 
     # ── Mode 1 — paste the LINK of a Bluesky post; we fetch its metadata ──
     with tab_paste:
@@ -673,6 +760,41 @@ def trust_checker():
             else:
                 st.session_state["tc_result"] = {"posts": chosen}
                 st.switch_page(_page_results)
+
+    # ── Mode 3 — upload a SCREENSHOT of a social-media post (Week 7 image-input path) ──
+    with tab_photo:
+        st.caption("Encountered a climate/weather claim **off Bluesky** — on X, Facebook, Instagram, "
+                   "LinkedIn or WhatsApp? Upload a **screenshot of the post**. A vision model reads the "
+                   "text out of the image and the **same** pipeline assesses it (a **degraded-fidelity** "
+                   "path: best-effort OCR, no original post to open).")
+        st.warning("📱 **It must be a social-media post that shows its engagement** (likes / reposts / "
+                   "comments). The scanner works on the post's **reach-vs-support** signal, so bare photos, "
+                   "satellite/comparison images, infographics, memes and illustrations **aren't accepted** — "
+                   "capture the whole post including its like/repost/comment counts.")
+        up = st.file_uploader("Screenshot of a post — must show its engagement (PNG / JPG / WebP)",
+                              type=["png", "jpg", "jpeg", "webp"], key="tc_img")
+        extra = st.text_area("Post text, if the screenshot cuts it off (optional)", key="tc_img_text",
+                             height=80, placeholder="Paste the full/remaining post text when the "
+                             "screenshot truncates a long post (a 'See more'). Engagement still comes "
+                             "from the image.")
+        if st.button("Read image & assess ▸", type="primary", key="tc_img_go"):
+            if not up:
+                st.warning("Upload a screenshot of a social-media post first.")
+            else:
+                with st.spinner(f"Reading the image with the vision model ({VISION_MODEL})…"):
+                    extracted = extract_from_image(up.getvalue(), model=VISION_MODEL,
+                                                   corrector=VISION_CORRECTOR)
+                st.session_state["tc_img_result"] = (
+                    {"extracted": extracted, "img": up.getvalue(), "extra": extra.strip()}
+                    if extracted else {"error": True})
+        res = st.session_state.get("tc_img_result")
+        if res:
+            if res.get("error"):
+                st.error(f"Couldn't read the image. The vision model **`{VISION_MODEL}`** may be "
+                         "unavailable here — the image path needs Ollama with that model (GPU). "
+                         "Confirm it's pulled and the Ollama server is reachable, then try again.")
+            else:
+                _render_image_trust(store, res["extracted"], res["img"], res.get("extra", ""))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

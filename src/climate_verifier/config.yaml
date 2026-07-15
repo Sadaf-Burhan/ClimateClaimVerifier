@@ -71,6 +71,13 @@ evidence:                          # Week 6 — evidence matching (GDELT news co
     - bbc.co.uk
     - cbc.ca
     - theguardian.com
+    - nytimes.com
+    # climate.us — climate-information hub launched by former NOAA scientists. Treated as a
+    # credible self-citation so a post that links it as its SUPPORTING article isn't red-flagged
+    # and surfaces in the missed-claim queue (the DOGE image-carried-claim case). Newer/less
+    # established than the wire services above — listed here as a DELIBERATE editorial choice,
+    # documented so the inclusion isn't mistaken for an oversight.
+    - climate.us
 
 vision:                            # Week 7 — GATED image modality (edge cases only, not per-post)
   model: "qwen2.5vl:7b"             # Ollama tag; natural-photo + OCR; real-photo vs cartoon/meme

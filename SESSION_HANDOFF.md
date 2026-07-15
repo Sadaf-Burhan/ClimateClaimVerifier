@@ -12,10 +12,15 @@ recovered downstream by evidence + source signals.
 ---
 
 ## 0. Immediate next step
-**Build the Week-7 image-input path** (§7 below — fully specced). Before that, the user planned to
-run the overnight ingestion from their own VS Code terminal:
-`uv run python -m climate_verifier.ingestion.scheduler --once --force` (keep the machine awake), then
-push `data/ingested.db` to Drive and run the Colab classification pass.
+**Week-7 image-input path is BUILT** (§5, code map §7) — `extract_from_image` + thin adapter +
+the `social` source guard + the Streamlit **🖼️ Upload a screenshot** tab + the eval harness. Pure
+logic is unit-tested and the app boots + renders the tab; the only unexercised piece is the live
+`qwen2.5vl:7b` call (GPU/Colab-only — the Photo tab degrades gracefully with a clear message when
+the model isn't reachable). **Next:** (a) drop 10–15 real screenshots into `data/image_eval/images/`
++ label rows in `data/image_eval/labels.jsonl`, then run `scripts/eval_image_extraction.py` on the
+Colab GPU; (b) still-pending backlog: run the overnight ingestion from the user's own VS Code terminal
+(`uv run python -m climate_verifier.ingestion.scheduler --once --force`, keep the machine awake), push
+`data/ingested.db` to Drive, run the Colab classification pass.
 
 ## 1. Git / branch / data state
 - **Branch `multimodal-edge-gating`** — all work here, pushed to `github.com/Sadaf-Burhan/ClimateClaimVerifier` (PUBLIC). `main` is frozen; merge only when the user says so.
@@ -69,8 +74,33 @@ push `data/ingested.db` to Drive and run the Colab classification pass.
 - **Reframes (parallel heuristics in `build_reader_signal`):** `looks_like_forecast` (future warning), `looks_like_eyewitness` (first-person local observation, conspiracy-guarded). Both suppress the red flag and reframe.
 - **LLM ranker deferred to an agentic extension** — full body-fetch/rerank is its own project (bot walls). Region/entity mismatches are handled deterministically (cheaper). The `use_llm_rerank` toggle remains for same-region-different-event cases (best on Colab GPU).
 
-## 5. WEEK 7 DESIGN — image-input path (READY TO BUILD, the next task)
+## 5. WEEK 7 — image-input path (BUILT — see §0)
 Goal: let a user **upload a screenshot** of a climate claim (off-Bluesky content — X/FB/IG/WhatsApp, infographics, memes), extract structured text, and run the **unchanged** pipeline. See `WEEK7_STATUS.md` §Design and the Q1–Q7 reasoning.
+
+**As built (what to know):**
+- `pipeline/vision.py` — `extract_from_image(image_bytes|path, model, corrector)` runs the SAME
+  `qwen2.5vl:7b` on a distinct **extraction** prompt (OCR + structured transcription). Rules enforced
+  in `normalize_extraction`: literal transcription, `_clean_str`/`_clean_int` null-out illegible
+  fields (never guess), enum-clamp `image_type`/`depicts_claim` to the existing gated-vision
+  vocabulary so `vision_reader_note`/`vision_supports` work unchanged, engagement tolerates
+  `1.2k`/`3,400`. `screenshot_signal_inputs(extracted)` is the thin adapter (sum engagement, pack the
+  vision dict + note, null-fill followers, `source="uploaded_screenshot"`, `visible_citation`→`external_url`).
+- **The ONE downstream change** (as specced): in `build_reader_signal`, a local `social = source in
+  ("bluesky","uploaded_screenshot")` now drives the reshare-official branch and the red flag; added a
+  dedicated `uploaded_screenshot` source phrase. Bluesky behaviour is byte-for-byte unchanged
+  (verified). A real-on-the-ground photo still clears the flag; screenshots/infographics/memes don't.
+- `app.py` — refactored the trust panel into a shared `_render_assessment_body(...)` (classification →
+  missed-claim nomination → signal → evidence), reused by BOTH `_render_trust` (Bluesky) and the new
+  `_render_image_trust` (screenshot: shows the image + what-the-model-read expander + degraded-fidelity
+  note, no "open original post"). Third tab **🖼️ Upload a screenshot** in `trust_checker`; result cached
+  in `st.session_state["tc_img_result"]` so re-renders don't re-call the vision model.
+- **Eval:** `data/image_eval/{labels.jsonl,README.md}` (labels tracked; `images/` git-ignored) +
+  `scripts/eval_image_extraction.py` — scores transcription (near-exact ≥0.85 claim sim, handle/engagement
+  exact), classification accuracy, and the **primary bar**: classify + `news_status` agreement between the
+  extracted claim and the expected claim fed in directly. `--no-assess` skips the RAG check. Seeded with
+  the canonical DOGE image-carried-claim row (memory `image-carried-claim-eval-example`).
+
+### Original design (unchanged, for reference)
 
 - **Problem-statement expansion (Answer A):** from "Bluesky scanner" → "scanner for climate claims a person encounters anywhere." Bluesky link stays the full-fidelity path; screenshot is a **degraded-fidelity, clearly-labelled** coverage path.
 - **`extract_from_image(image)` → JSON schema:** `claim_text`, `has_readable_text`, `image_type` (real_photo/meme_or_cartoon/synthetic_ai/screenshot/chart_infographic), `depicts_claim` (yes/partial/no), `author_handle`, `platform`, `engagement {likes,reposts,replies}`, `visible_citation`, `description`.
@@ -92,7 +122,8 @@ Goal: let a user **upload a screenshot** of a climate claim (off-Bluesky content
 - `pipeline/geo.py` — location extraction (place-names, domain/ccTLD, `[AZ]`/`City, TX` abbreviations), `extract_location`, `with_location`.
 - `pipeline/evidence.py` — `evidence_for_claim` (region+time-aware retrieval, relevance floor), `build_reader_signal` (news_status, red flag, reframes, region-mismatch), `assess_claim`, `retrieval_only_verdict`, `corroboration_check`, `looks_like_forecast/eyewitness`, `is_official`, `extract_citations`.
 - `pipeline/relabel.py` — `get_relabel_candidates`, `apply_relabel`/`set_admin_label`/`append_to_eval_csv`, `eval_post_types`, `ensure_admin_columns`.
-- `pipeline/vision.py` — `gate_edge_cases`, `analyze_image`, `_fetch_jpeg` (WebP→JPEG), `vision_reader_note`. **Week 7 adds `extract_from_image` here.**
+- `pipeline/vision.py` — `gate_edge_cases`, `analyze_image`, `_fetch_jpeg` (WebP→JPEG), `vision_reader_note`. **Week-7 image-input path (BUILT):** `extract_from_image`, `normalize_extraction`, `_clean_str`/`_clean_int`, `screenshot_signal_inputs` (the thin adapter), `_encode_jpeg`.
+- `scripts/eval_image_extraction.py` — Week-7 image-extraction eval (transcription / classification / end-to-end agreement). Data in `data/image_eval/`.
 - `pipeline/claim_classifier.py` — `classify`, `classify_pending` (bluesky-only), `get_stats` (total_classifiable/evidence).
 - `pipeline/evaluate.py` — `run_eval`, `compute_metrics`, `snapshot_metrics`, `load_eval_history`.
 - `ingestion/scheduler.py` — `run_ingestion_cycle` (+ top-up + refresher), `topup_evidence_for_claims`, `refresh_corpus`, CLI `--once/--force/--topup/--refresh/--dry-run`.

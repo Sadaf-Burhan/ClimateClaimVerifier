@@ -80,13 +80,19 @@ pieces still to build. Cross-references files, commits, and design decisions.
 
 ---
 
-## 🔨 To build (the two new pieces — noted, not started)
+## 🔨 To build
 
-1. **Week 7 image-screenshot input path.** `extract_from_image()`; the thin adapter; generalize the
-   `source == "bluesky"` guard for `"uploaded_screenshot"`; the Streamlit "Photo input" `st.tabs`
-   panel; `has_readable_text` / extraction-failure handling.
+1. ✅ **Week 7 image-screenshot input path — BUILT.** `extract_from_image()` + `normalize_extraction`
+   (literal-transcription null guards, enum clamp to the gated-vision vocabulary); the thin adapter
+   `screenshot_signal_inputs()`; generalized the `source == "bluesky"` guard to a `social` flag
+   covering `"uploaded_screenshot"` (the one downstream change) in `build_reader_signal`; the
+   Streamlit **🖼️ Upload a screenshot** tab (shared `_render_assessment_body` reused across the
+   Bluesky and screenshot paths); `has_readable_text` / extraction-failure handling. Plus the
+   eval harness `scripts/eval_image_extraction.py` + `data/image_eval/`. Unit-tested; app boots and
+   renders the tab. Remaining: label 10–15 real screenshots and run the harness on the Colab GPU
+   (the live `qwen2.5vl:7b` call is GPU-only; the tab degrades gracefully locally).
 
-2. **Evaluation layer.**
+2. **Evaluation layer (remaining pieces).**
    - **Dynamically growing eval set** — label a sample of recent *ingested* posts and append to
      `claim_eval.csv`, so the drift chart catches real concept drift, not just model/env regressions.
    - **Retrieval-quality evaluation** — measure how well the RAG evidence layer returns *relevant*

@@ -404,12 +404,19 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
                            "no relevant coverage was found. Absence here is not proof it did not happen; "
                            "the news corpus is limited.")
 
+    # An unverified social source — a Bluesky account OR an uploaded off-platform screenshot.
+    # Both carry no platform verification, so the reach-vs-support red flag and the unverified-
+    # account wording apply to each (the ONE downstream change for the Week-7 image-input path).
+    social = source in ("bluesky", "uploaded_screenshot")
     if official:
         src_phrase = f"Source: a verified official source ({author or domain})."
-    elif reshared_official and source == "bluesky":
+    elif reshared_official and social:
         off_dom = next((c["domain"] for c in citations if c.get("official")), "")
         src_phrase = (f"Source: an unverified account, but it reshares an official source ({off_dom}) — "
                       "credibility credited to the origin, not the account.")
+    elif source == "uploaded_screenshot":
+        src_phrase = ("Source: an uploaded screenshot of off-platform content — the original account is "
+                      "unverified and the text was read by OCR (best-effort, degraded fidelity).")
     elif source == "bluesky":
         src_phrase = f"Source: an unverified social account ({followers:,} followers)."
     else:
@@ -434,7 +441,7 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
     # unverified social account, NOT official (directly or via reshare), NO credible cite,
     # NOT rescued by a real on-the-ground photo, and NOT a hyperlocal eyewitness observation.
     red_flag = (engagement >= high_reach and verdict == "none"
-                and source == "bluesky" and not treated_official and not credible_cite
+                and social and not treated_official and not credible_cite
                 and not vision_supports and not eyewitness_defused)
 
     has_related = n > 0

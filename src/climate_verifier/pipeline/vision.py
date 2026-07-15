@@ -92,6 +92,19 @@ def normalize(out: dict | None) -> dict | None:
     }
 
 
+def _encode_jpeg(raw: bytes) -> str | None:
+    """Re-encode arbitrary image bytes to a base64 JPEG string for Ollama. Ollama's image
+    loader (stb_image) cannot decode WebP (Bluesky's CDN) or many PNG variants — feeding it
+    raw yields a blank image and a canned description. Round-tripping through PIL to JPEG is
+    what makes the model actually see the picture."""
+    try:
+        buf = io.BytesIO()
+        Image.open(io.BytesIO(raw)).convert("RGB").save(buf, format="JPEG")
+        return base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        return None
+
+
 def _fetch_jpeg(image_url: str, timeout: int) -> bytes | None:
     """Download an image and re-encode to JPEG. Bluesky's CDN serves WebP, which Ollama's
     image loader (stb_image) cannot decode — feeding it raw WebP silently yields a blank
@@ -139,6 +152,194 @@ def vision_reader_note(vs: dict | None) -> str:
     if it == "screenshot":
         return "Image: a screenshot of a source — treat as a citation to open and verify."
     return (f"Image: {vs.get('description', '')}").strip()
+
+
+# ── Week 7 image-INPUT path ─────────────────────────────────────────────────────
+# Distinct from the GATED vision above (which classifies the image of a KNOWN Bluesky post).
+# Here a user uploads a SCREENSHOT of off-platform content (X/FB/IG/WhatsApp, a meme, an
+# infographic) and the claim itself is read OUT of the image, then fed to the SAME pipeline as
+# the Bluesky-link path. This is a degraded-fidelity coverage path: the transcription is
+# best-effort OCR and there is no canonical post to open, so its signals are lower-confidence.
+_EXTRACT_PROMPT = """You are extracting structured information from a SCREENSHOT or IMAGE of a social-media post or infographic about climate or weather, so a fact-checking tool can assess the claim it carries. The image is off-platform (X/Twitter, Facebook, Instagram, WhatsApp, a meme, or an infographic).
+
+Your job is TRANSCRIPTION and OBSERVATION, never judgement. Follow every rule:
+1. TRANSCRIBE LITERALLY. For claim_text, author_handle and the engagement counts, copy EXACTLY what is written in the image. Do NOT paraphrase, complete, correct, translate or invent anything.
+2. NEVER GUESS. If a field is not clearly legible in the image, return null for it. A hallucinated handle or engagement number is the worst possible error — when unsure, use null.
+3. claim_text = the main factual statement shown in the image (the headline/claim on a card, the body of the post). Transcribe the primary readable text. null only if there is no legible text at all.
+4. INFER platform ONLY from visible branding (an X/Twitter, Bluesky, Facebook, Instagram, TikTok, Reddit or WhatsApp logo / UI). null if there is no clear branding.
+5. engagement = the like / repost / reply counts VISIBLE in the image, as integers. Any count not shown = null. Do NOT sum, estimate or convert.
+6. image_type describes the MAIN visual the post is built around (the central photo, chart, cartoon or AI-generated image the claim concerns) — NOT the fact that this whole upload is itself a screenshot of a post. Use "screenshot" ONLY when that central visual is a screenshot of another app or website.
+7. Describe ONLY what is visibly in the image. Do NOT decide whether the claim is true or false — that is the reader's job, not yours.
+
+Return ONLY this JSON (no markdown fences, no extra text):
+{"claim_text": "<transcribed main text, or null>",
+ "has_readable_text": true,
+ "image_type": "real_photo|meme_or_cartoon|screenshot|infographic|ai_suspected|other",
+ "depicts_claim": "yes|partial|no|unrelated",
+ "author_handle": "<@handle exactly as shown, or null>",
+ "platform": "<x|twitter|bluesky|facebook|instagram|tiktok|reddit|whatsapp|other, or null>",
+ "engagement": {"likes": <int or null>, "reposts": <int or null>, "replies": <int or null>},
+ "visible_citation": "<any source name or URL shown in the image, or null>",
+ "description": "<one short sentence, only what is visible>"}"""
+
+_PLATFORMS = {"x", "twitter", "bluesky", "facebook", "instagram", "threads", "tiktok",
+              "reddit", "whatsapp", "telegram", "youtube", "linkedin", "mastodon", "truth social"}
+
+
+def _clean_str(v) -> str | None:
+    """Literal-transcription guard: return the trimmed string, or None for any
+    not-legible / placeholder value (the model is told to null these, but it slips)."""
+    if v is None:
+        return None
+    s = str(v).strip()
+    if not s or s.lower() in ("null", "none", "n/a", "na", "unknown", "unclear", "not visible",
+                              "not legible", "illegible"):
+        return None
+    return s
+
+
+def _clean_int(v) -> int | None:
+    """Parse a transcribed count to an int, tolerating '1,234' and '1.2k'/'3M' social shorthand.
+    None (never a guessed 0) when it isn't a clean number — a hallucinated count is the worst failure."""
+    if v is None or isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    s = str(v).strip().lower().replace(",", "")
+    if not s or s in ("null", "none"):
+        return None
+    mult = 1
+    if s and s[-1] in ("k", "m"):
+        mult, s = (1000 if s[-1] == "k" else 1_000_000), s[:-1]
+    try:
+        return int(float(s) * mult)
+    except Exception:
+        return None
+
+
+def normalize_extraction(out: dict | None) -> dict | None:
+    """Clamp a parsed extraction dict to the schema — allowed enums, literal-null strings,
+    integer-or-null engagement. Keeps the transcription honest (null over guess)."""
+    if not out:
+        return None
+    it = str(out.get("image_type", "other")).lower()
+    dp = str(out.get("depicts_claim", "unrelated")).lower()
+    eng = out.get("engagement") if isinstance(out.get("engagement"), dict) else {}
+    platform = _clean_str(out.get("platform"))
+    if platform:
+        platform = platform.lower()
+    claim = _clean_str(out.get("claim_text"))
+    hrt = out.get("has_readable_text")
+    if hrt is None:
+        hrt = claim is not None
+    return {
+        "claim_text": claim,
+        "has_readable_text": bool(hrt),
+        "image_type": it if it in _VALID_TYPES else "other",
+        "depicts_claim": dp if dp in _VALID_DEPICTS else "unrelated",
+        "author_handle": _clean_str(out.get("author_handle")),
+        "platform": platform,
+        "engagement": {
+            "likes": _clean_int(eng.get("likes")),
+            "reposts": _clean_int(eng.get("reposts")),
+            "replies": _clean_int(eng.get("replies")),
+        },
+        "visible_citation": _clean_str(out.get("visible_citation")),
+        "description": str(out.get("description", ""))[:300],
+    }
+
+
+def _correct_extraction(raw: str, model: str) -> dict | None:
+    """Reformat malformed extraction output to the schema with a cheap TEXT model (never sees
+    the image). It only reshapes the JSON it is given — it must not add facts."""
+    try:
+        resp = ollama.chat(model=model, options={"temperature": 0}, messages=[{
+            "role": "user",
+            "content": ("Reformat the following into ONLY this JSON, keeping the values verbatim and "
+                        "using null for anything missing (do NOT invent values):\n"
+                        '{"claim_text": null, "has_readable_text": true, "image_type": '
+                        '"real_photo|meme_or_cartoon|screenshot|infographic|ai_suspected|other", '
+                        '"depicts_claim": "yes|partial|no|unrelated", "author_handle": null, '
+                        '"platform": null, "engagement": {"likes": null, "reposts": null, "replies": null}, '
+                        '"visible_citation": null, "description": ""}\n'
+                        "No markdown, no extra text:\n\n" + str(raw))}])
+        return _parse_json(resp["message"]["content"])
+    except Exception:
+        return None
+
+
+def extract_from_image(image: bytes | str, model: str, corrector: str,
+                       timeout: int = 30) -> dict | None:
+    """Week 7 image-INPUT path: OCR + structure a user-uploaded screenshot of an off-platform
+    climate claim into the extraction schema (claim_text, image_type, author_handle, platform,
+    engagement, visible_citation, …). Accepts raw image bytes (a Streamlit upload) or a file
+    path. Returns the normalized dict, or None if the image can't be read / the model fails.
+    Same model as the gated edge-case vision — one model, two entry points."""
+    raw = bytes(image) if isinstance(image, (bytes, bytearray)) else None
+    if raw is None:
+        try:
+            raw = Path(image).read_bytes()
+        except Exception:
+            return None
+    b64 = _encode_jpeg(raw)
+    if b64 is None:
+        return None
+    try:
+        resp = ollama.chat(model=model, options={"temperature": 0}, messages=[{
+            "role": "user", "content": _EXTRACT_PROMPT, "images": [b64]}])
+        content = resp["message"]["content"]
+        return normalize_extraction(_parse_json(content) or _correct_extraction(content, corrector))
+    except Exception:
+        return None
+
+
+def looks_like_social_post(extracted: dict) -> bool:
+    """The scanner assesses the REACH-vs-support of social-media posts, so the image-input path's
+    one hard entry requirement is visible engagement. An upload with no like/repost/comment count
+    isn't a post we can assess (reach is undefined) — bare photos, satellite/comparison images,
+    infographics, memes and illustrations fail this gate and are rejected with guidance."""
+    eng = (extracted or {}).get("engagement") or {}
+    return any(eng.get(k) is not None for k in ("likes", "reposts", "replies"))
+
+
+def _citation_as_url(citation: str) -> str:
+    """A visible_citation is often a BARE domain the vision model read off the image
+    ('climate.us', 'vacancybridge.com'). The downstream citation detector (extract_citations)
+    only recognizes http/www URLs, so a bare domain would never be credited. Normalize a
+    domain-looking token to a URL. Leave source NAMES ('The New York Times', 'NOAA') and
+    already-qualified URLs untouched — a name has no domain to match on."""
+    c = (citation or "").strip()
+    if not c or c.lower().startswith(("http://", "https://", "www.")):
+        return c
+    if re.match(r"^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(/\S*)?$", c.lower()):   # domain[/path], no spaces
+        return "https://" + c
+    return c                                                              # a name, not a domain
+
+
+def screenshot_signal_inputs(extracted: dict) -> dict:
+    """Thin adapter: map an extract_from_image() result onto the inputs assess_claim() expects,
+    so the SAME pipeline (classify → region-aware RAG → reader signal) runs on an uploaded
+    screenshot. Sums the visible engagement counts into one int, packs the image classification
+    into the vision dict the signal builder already understands (with a reader note), null-fills
+    followers, and tags source='uploaded_screenshot' (an unverified social source)."""
+    eng = extracted.get("engagement") or {}
+    engagement = sum(v for v in (eng.get("likes"), eng.get("reposts"), eng.get("replies"))
+                     if isinstance(v, int))
+    vs = {
+        "image_type": extracted.get("image_type", "other"),
+        "depicts_claim": extracted.get("depicts_claim", "unrelated"),
+        "description": extracted.get("description", ""),
+    }
+    vs["note"] = vision_reader_note(vs)
+    return {
+        "claim_text": extracted.get("claim_text") or "",
+        "engagement": engagement,
+        "source": "uploaded_screenshot",
+        "followers": 0,
+        "author": extracted.get("author_handle") or "",
+        "external_url": _citation_as_url(extracted.get("visible_citation") or ""),
+        "vision": vs,
+    }
 
 
 def gate_edge_cases(db_path: str, cfg: dict, limit: int | None = None) -> list[dict]:
