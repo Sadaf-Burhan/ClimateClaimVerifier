@@ -63,7 +63,8 @@ ADAPTER_MODEL  = cfg["model"].get("adapter_name", "qwen2.5-3b-claim-lora")
 EMBED_MODEL    = cfg["embedding"]["model_name"]
 VISION_MODEL      = cfg["vision"]["model"]                          # qwen2.5vl:7b — the image-input path (GPU)
 VISION_CORRECTOR  = cfg["vision"].get("corrector_model", "qwen2.5:3b")
-EVAL_CSV       = Path(cfg["evaluation"]["claim_eval_csv"])
+EVAL_CSV       = Path(cfg["evaluation"]["claim_eval_csv"])          # DYNAMIC — relabels append here
+GOLD_EVAL_CSV  = Path(cfg["evaluation"].get("gold_eval_csv", "data/claim_eval_gold.csv"))  # FROZEN control
 CLAIM_RECALL_TARGET = float(cfg["evaluation"]["claim_recall_target"])
 PAIRS_CSV      = Path("data/embedding_pairs.csv")
 
@@ -241,55 +242,99 @@ def _render_eval_freshness():
 
 
 def _render_drift():
-    """Model-drift panel: recall/precision across successive evals + the FN:FP balance.
-    Reads data/eval_history.jsonl (one line per maintenance eval — Colab GPU or local).
-    This is the signal that tells you the classifier is degrading before users feel it."""
+    """Model-drift panel, split by eval set — the whole point is that these two are NOT one series:
+      GOLD    (frozen)  — data constant, so a move = the MODEL or ENVIRONMENT changed. The control.
+      DYNAMIC (growing) — relabels append, so a move = model change + distribution change = concept drift.
+    Reading them together is what made the old single chart uninterpretable. Reads
+    data/eval_history.jsonl (one line per set per maintenance eval)."""
     hist = load_eval_history()
     if not hist:
-        st.info("📈 **Drift log is empty.** Each evaluation run (the Colab GPU maintenance pass, or "
-                "🔧 Maintenance → Run evaluation) appends recall / precision / FN / FP / benchmark-size "
-                "here, so you can watch for classifier drift over time.")
+        st.info("📈 **Drift log is empty.** Each evaluation run (the Colab GPU maintenance pass) appends "
+                "one line per eval set — recall / precision / FN / FP / n / model digest — so you can "
+                "watch for classifier drift over time.")
         return
     df = pd.DataFrame(hist)
     df["ts"] = pd.to_datetime(df["ts"], errors="coerce", utc=True)
     df = df.dropna(subset=["ts"]).sort_values("ts")
     if df.empty:
         return
-    latest, prev = df.iloc[-1], (df.iloc[-2] if len(df) > 1 else df.iloc[-1])
+    # Entries logged before the gold/dynamic split ran on the frozen 100 — that IS the gold set.
+    if "eval_set" not in df.columns:
+        df["eval_set"] = "gold"
+    df["eval_set"] = df["eval_set"].fillna("gold")
+
+    gold, dyn = df[df["eval_set"] == "gold"], df[df["eval_set"] == "dynamic"]
+    latest = df.iloc[-1]
     target = float(latest.get("target", CLAIM_RECALL_TARGET) or CLAIM_RECALL_TARGET)
-    multi = len(df) > 1
 
     st.markdown("#### 📈 Model drift — evaluation history")
-    st.caption(f"Last evaluated **{_age_label(str(latest['ts']))}** on model `{latest.get('model','?')}` "
-               f"· {len(df)} run(s) logged.")
-    n_now = int(latest.get("n", 0) or 0)
-    n_prev = int(prev.get("n", 0) or 0)
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Recall (CLAIM)", f"{latest['recall']:.3f}",
-              delta=f"{latest['recall']-prev['recall']:+.3f}" if multi else None,
-              delta_color="normal")
-    c2.metric("Precision", f"{latest['precision']:.3f}",
-              delta=f"{latest['precision']-prev['precision']:+.3f}" if multi else None)
-    c3.metric("FN / FP", f"{int(latest['false_negatives'])} / {int(latest['false_positives'])}",
-              help="False negatives (missed claims — costly) vs false positives (opinions surfaced — cheap)")
-    c4.metric("Benchmark (n)", n_now, delta=(n_now - n_prev) if multi and n_now != n_prev else None,
-              help="Size of the hand-labeled eval set. It grows as the admin relabels hard cases — "
-                   "which is what turns this from a static check into a true concept-drift signal.")
-    c5.metric("Meets target", "✅" if bool(latest.get("meets_target")) else "❌",
-              help=f"recall ≥ {target:.0%}")
+    st.caption(f"Last evaluated **{_age_label(str(latest['ts']))}** on `{latest.get('model','?')}` "
+               f"· {len(gold)} gold run(s) · {len(dyn)} dynamic run(s).")
 
-    st.line_chart(df.set_index("ts")[["recall", "precision"]])
-    st.caption(f"Recall target ≥ {target:.0%}. A sustained **downward recall** trend is the costly "
-               "drift — real claims dropped at the gate. Precision recovers downstream, so watch recall. "
-               "When **benchmark (n) grows** and recall holds, the model is generalizing to the new hard "
-               "cases; if recall drops *as n grows*, that's genuine concept drift on the new distribution.")
+    # ── GOLD: the control. Any movement here is the model/env, because the data never changes. ──
+    st.markdown("##### 🥇 Gold set — the frozen control")
+    if gold.empty:
+        st.caption("No gold runs logged yet.")
+    else:
+        g, gp = gold.iloc[-1], (gold.iloc[-2] if len(gold) > 1 else gold.iloc[-1])
+        multi = len(gold) > 1
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Recall (CLAIM)", f"{g['recall']:.3f}",
+                  delta=f"{g['recall']-gp['recall']:+.3f}" if multi else None)
+        c2.metric("Precision", f"{g['precision']:.3f}",
+                  delta=f"{g['precision']-gp['precision']:+.3f}" if multi else None)
+        c3.metric("FN / FP", f"{int(g['false_negatives'])} / {int(g['false_positives'])}",
+                  help="False negatives (missed claims — costly) vs false positives (opinions surfaced — cheap)")
+        c4.metric("n (frozen)", int(g.get("n", 0) or 0),
+                  help="The gold set never grows — if this number moves, something is wrong.")
+        c5.metric("Meets target", "✅" if bool(g.get("meets_target")) else "❌", help=f"recall ≥ {target:.0%}")
+        if len(gold) > 1:
+            st.line_chart(gold.set_index("ts")[["recall", "precision"]])
+        st.caption("**The data here never changes**, so any move is the **model or the environment** — "
+                   "a silent model re-pull, a new Ollama runtime, different hardware, or the classifier's "
+                   "known nondeterminism. This is your ± jitter band: small wobble = noise; a sustained "
+                   "step = a real regression. Check `model_digest` in the raw log before calling it drift.")
+
+    # ── DYNAMIC: grows with the relabel loop, so it answers a different question. ──
+    st.markdown("##### 📚 Dynamic set — grows with the relabel loop")
+    if dyn.empty:
+        st.caption("No dynamic runs logged yet.")
+    else:
+        d, dp = dyn.iloc[-1], (dyn.iloc[-2] if len(dyn) > 1 else dyn.iloc[-1])
+        multi = len(dyn) > 1
+        n_now, n_prev = int(d.get("n", 0) or 0), int(dp.get("n", 0) or 0)
+        c1, c2, c3, c4, c5 = st.columns(5)
+        c1.metric("Recall (CLAIM)", f"{d['recall']:.3f}",
+                  delta=f"{d['recall']-dp['recall']:+.3f}" if multi else None)
+        c2.metric("Precision", f"{d['precision']:.3f}",
+                  delta=f"{d['precision']-dp['precision']:+.3f}" if multi else None)
+        c3.metric("FN / FP", f"{int(d['false_negatives'])} / {int(d['false_positives'])}")
+        c4.metric("Benchmark (n)", n_now, delta=(n_now - n_prev) if multi and n_now != n_prev else None,
+                  help="Grows as the admin relabels hard cases — that growth is what makes this a "
+                       "true concept-drift signal rather than a regression check.")
+        c5.metric("Meets target", "✅" if bool(d.get("meets_target")) else "❌", help=f"recall ≥ {target:.0%}")
+        if len(dyn) > 1:
+            st.line_chart(dyn.set_index("ts")[["recall", "precision"]])
+        st.caption("This set **gets harder over time** by design, so a dip here is not automatically a "
+                   "regression. **Read it against gold:** if gold holds and this falls, the model isn't "
+                   "generalizing to the newly relabeled cases — *genuine concept drift*. If both fall "
+                   "together, it's the model/environment, not the data.")
+
+    st.info("🔍 **How to read these two:** gold moving = **model/env**. Only dynamic moving = "
+            "**concept drift**. Both moving = model/env (gold proves it). Neither = stable. "
+            "That separation is the entire reason the sets are kept apart — one merged number can "
+            "never distinguish these cases.")
+
     fnfp = df.set_index("ts")[["false_negatives", "false_positives"]].rename(
         columns={"false_negatives": "FN (missed — costly)", "false_positives": "FP (surfaced — cheap)"})
     st.bar_chart(fnfp)
 
     with st.expander("Raw drift log"):
-        cols = ["ts", "model", "n", "recall", "precision", "f1", "accuracy",
-                "false_negatives", "false_positives", "meets_target"]
+        st.caption("`model_digest` / `ollama_version` are the first thing to check when **gold** moves: "
+                   "Colab re-installs Ollama and re-pulls the model every run, both unpinned, so a "
+                   "changed digest means the model itself changed — not that your classifier drifted.")
+        cols = ["ts", "eval_set", "model", "model_digest", "ollama_version", "n", "recall", "precision",
+                "f1", "accuracy", "false_negatives", "false_positives", "meets_target"]
         st.dataframe(df[[c for c in cols if c in df.columns]].iloc[::-1],
                      use_container_width=True, hide_index=True)
     st.divider()
@@ -580,10 +625,11 @@ def _render_relabel_section(title: str, items: list, corrected_label: str, note:
                 else:
                     apply_relabel(DB_PATH, str(EVAL_CSV), pid, c["text"], corrected_label,
                                   c["keyword_category"], post_type=pt, notes=notes)
-                    done[pid] = (f"✅ Label shifted to **{corrected_label.upper()}**. Appended to the eval set "
-                                 f"(`claim_eval.csv`) as a `{corrected_label}` example · thought `{pt}` — users now "
-                                 "see the corrected label, and it will shape the next evaluation run. "
-                                 "Scroll down to review the next one.")
+                    done[pid] = (f"✅ Label shifted to **{corrected_label.upper()}**. Appended to the "
+                                 f"**dynamic** eval set (`{EVAL_CSV.name}`) as a `{corrected_label}` example "
+                                 f"· thought `{pt}` — users now see the corrected label, and it will shape "
+                                 "the next evaluation run. (The **gold** control set is never touched, so it "
+                                 "stays comparable.) Scroll down to review the next one.")
                     st.rerun()   # re-render THIS card as done; queue + position preserved (no rescan)
             if col2.button("↩ Keep as is (model was right)", key=f"keep_{pid}"):
                 mark_reviewed_ok(DB_PATH, pid, c["has_claim"])
@@ -592,21 +638,33 @@ def _render_relabel_section(title: str, items: list, corrected_label: str, note:
 
 
 def _render_static_eval():
-    """Static point-in-time evaluation on the hand-labeled set: run the classifier and show the
-    confusion matrix, per-class metrics, and error breakdowns. Admin diagnostic — a local run is
+    """Static point-in-time evaluation: run the classifier on ONE of the two labeled sets and show
+    the confusion matrix, per-class metrics, and error breakdowns. Admin diagnostic — a local run is
     slow; the canonical eval is the Colab GPU maintenance pass, which is what feeds the drift chart."""
     st.subheader("📏 Static evaluation — hand-labeled set")
+    choice = st.radio(
+        "Which eval set?", ["🥇 Gold (frozen control)", "📚 Dynamic (grows with relabels)"],
+        horizontal=True, key="static_eval_set",
+        help="Gold never changes, so it isolates model/env regressions. Dynamic grows with the "
+             "relabel loop, so it measures concept drift on the new hard cases.")
+    is_gold = choice.startswith("🥇")
+    target_csv = GOLD_EVAL_CSV if is_gold else EVAL_CSV
     st.caption(
-        f"Point-in-time run of the classifier against `{EVAL_CSV}` (human ground truth). "
-        f"Success criterion: **recall on CLAIM ≥ {CLAIM_RECALL_TARGET:.0%}** — a missed claim (false "
+        f"Point-in-time run of the classifier against `{target_csv}` (human ground truth). "
+        + ("**Gold = the frozen control** — the data never changes, so any movement is the model or "
+           "the environment, not the benchmark. "
+           if is_gold else
+           "**Dynamic = the growing set** — it gets harder as you relabel, so a dip here isn't "
+           "automatically a regression; read it against gold. ")
+        + f"Success criterion: **recall on CLAIM ≥ {CLAIM_RECALL_TARGET:.0%}** — a missed claim (false "
         "negative) is discarded forever (costly); a false positive just surfaces on the dashboard (cheap).")
-    if not EVAL_CSV.exists():
-        st.warning(f"`{EVAL_CSV}` not found.")
+    if not target_csv.exists():
+        st.warning(f"`{target_csv}` not found.")
         return
-    n_eval = len(load_eval_set(str(EVAL_CSV)))
+    n_eval = len(load_eval_set(str(target_csv)))
     if st.button(f"Run evaluation ({n_eval} labeled posts)"):
         with st.spinner(f"Classifying {n_eval} posts with {MODEL}..."):
-            eval_results = run_eval(str(EVAL_CSV), model=MODEL, llm_batch_size=LLM_BATCH_SIZE)
+            eval_results = run_eval(str(target_csv), model=MODEL, llm_batch_size=LLM_BATCH_SIZE)
             metrics = compute_metrics(eval_results, claim_recall_target=CLAIM_RECALL_TARGET)
         st.caption("🔬 Local diagnostic run — not added to the drift log (the drift series is produced by "
                    "the Colab GPU maintenance pass, for backend-comparable numbers).")

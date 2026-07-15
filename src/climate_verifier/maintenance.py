@@ -83,23 +83,49 @@ def run_reindex(cfg: dict) -> int:
 
 
 def run_evaluation(cfg: dict) -> dict:
-    """Evaluate the classifier on the labeled set + append a drift snapshot. Records health."""
+    """Evaluate the classifier on BOTH labeled sets + append one drift snapshot each. Records health.
+
+    Two sets, two questions — never collapse them into one number:
+      gold    (frozen)  — data constant, so any move = MODEL/ENV change (the +/- jitter band)
+      dynamic (growing) — relabel loop appends, so a move = model change + distribution change
+                          (concept drift: does it generalize to the new hard cases?)
+    Gold is the control that makes dynamic readable. Health/target status reports GOLD, because a
+    dynamic miss can just mean "the new cases are hard", while a gold miss is a real regression.
+    A missing gold file degrades to dynamic-only rather than failing the pass.
+    """
     ev = cfg.get("evaluation", {})
-    csv_path = ev.get("claim_eval_csv", "data/claim_eval.csv")
     target = float(ev.get("claim_recall_target", 0.90))
     model = cfg["model"]["name"]
     lbs = cfg["model"].get("llm_batch_size", LLM_BATCH_SIZE)
-    print(f"[evaluate] {model} on {csv_path} …")
+    sets = [("gold", ev.get("gold_eval_csv", "data/claim_eval_gold.csv")),
+            ("dynamic", ev.get("claim_eval_csv", "data/claim_eval.csv"))]
     try:
-        results = run_eval(csv_path, model=model, llm_batch_size=lbs)
-        metrics = compute_metrics(results, claim_recall_target=target)
-        print(format_report(metrics))
-        rec = snapshot_metrics(metrics, model=model)
-        update_health("evaluation", True, recall=rec["recall"], precision=rec["precision"],
-                      meets_target=rec["meets_target"])
-        print(f"[evaluate] drift snapshot recorded (recall {rec['recall']}, "
-              f"precision {rec['precision']}, meets_target={rec['meets_target']}).")
-        return rec
+        recs = {}
+        for name, csv_path in sets:
+            if not Path(csv_path).exists():
+                print(f"[evaluate] {name}: {csv_path} not found — skipping.")
+                continue
+            print(f"[evaluate] {name} set — {model} on {csv_path} …")
+            results = run_eval(csv_path, model=model, llm_batch_size=lbs)
+            metrics = compute_metrics(results, claim_recall_target=target)
+            print(format_report(metrics))
+            rec = snapshot_metrics(metrics, model=model, eval_set=name)
+            recs[name] = rec
+            print(f"[evaluate] {name}: n={rec['n']} recall={rec['recall']} "
+                  f"precision={rec['precision']} meets_target={rec['meets_target']} "
+                  f"(digest={rec.get('model_digest')}, ollama={rec.get('ollama_version')})")
+        if not recs:
+            raise FileNotFoundError("no eval set found (checked gold + dynamic)")
+        primary = recs.get("gold") or recs.get("dynamic")     # gold is the regression signal
+        update_health("evaluation", True, recall=primary["recall"], precision=primary["precision"],
+                      meets_target=primary["meets_target"],
+                      sets={k: {"n": v["n"], "recall": v["recall"]} for k, v in recs.items()})
+        if "gold" in recs and "dynamic" in recs:
+            g, d = recs["gold"], recs["dynamic"]
+            print(f"\n[evaluate] gold recall {g['recall']} (n={g['n']})  vs  dynamic "
+                  f"{d['recall']} (n={d['n']}) — gold moving = model/env; only dynamic moving = "
+                  "concept drift on the newly relabeled cases.")
+        return primary
     except Exception as e:
         update_health("evaluation", False, error=f"{type(e).__name__}: {e}")
         raise

@@ -138,19 +138,65 @@ def compute_metrics(results: list[dict],
     }
 
 
+def _attr(obj, key):
+    """Read `key` off an object OR a dict — the ollama client returns pydantic models in newer
+    versions and plain dicts in older ones."""
+    if isinstance(obj, dict):
+        return obj.get(key)
+    return getattr(obj, key, None)
+
+
+def model_fingerprint(model: str) -> dict:
+    """Identify the exact model BUILD and Ollama RUNTIME behind a result.
+
+    The drift log records the model TAG ('qwen2.5:3b'), but library tags get republished, and Colab
+    re-installs Ollama + re-pulls the model on every run — both unpinned. So "the model changed
+    underneath us" is otherwise INVISIBLE, which would make the frozen gold set useless as a control:
+    you couldn't tell a real regression from a silent model swap. Best-effort; None when unavailable
+    (never raises — a missing fingerprint must not break an eval)."""
+    out = {"model_digest": None, "ollama_version": None}
+    try:
+        import ollama
+        resp = ollama.list()
+        models = _attr(resp, "models") or []
+        for m in models:
+            name = _attr(m, "model") or _attr(m, "name") or ""
+            if name == model or name.split(":")[0] == model.split(":")[0]:
+                digest = _attr(m, "digest") or ""
+                out["model_digest"] = str(digest)[:19] or None
+                break
+    except Exception:
+        pass
+    try:
+        import requests
+        out["ollama_version"] = requests.get("http://127.0.0.1:11434/api/version",
+                                             timeout=3).json().get("version")
+    except Exception:
+        pass
+    return out
+
+
 def snapshot_metrics(metrics: dict, model: str, path: Path | str = EVAL_HISTORY_PATH,
-                     ts: str | None = None) -> dict:
+                     ts: str | None = None, eval_set: str = "dynamic") -> dict:
     """Append a compact, timestamped eval snapshot to the drift log (JSONL).
 
     Each maintenance eval (Colab GPU, or a local run) records one line here; the app's
     Evaluation tab reads them to plot recall/precision over time and the FN:FP balance —
     the signal that tells you if the classifier is drifting. Pass `ts` to stamp a specific
-    time (else now, UTC)."""
+    time (else now, UTC).
+
+    `eval_set` tags WHICH benchmark produced the line, and the two must never be read as one series:
+      'gold'    — the frozen control; data constant, so movement = model/env change (the jitter band)
+      'dynamic' — the growing relabel set; movement = model change + distribution change (concept drift)
+    The model digest/runtime version are recorded so a silent model swap is visible rather than
+    misread as drift."""
     claim = metrics["per_class"]["claim"]
     asym = metrics["error_asymmetry"]
     rec = {
         "ts": ts or datetime.now(timezone.utc).isoformat(),
         "model": model,
+        "eval_set": eval_set,
+        **model_fingerprint(model),
         "n": metrics["n"],
         "recall": round(claim["recall"], 4),
         "precision": round(claim["precision"], 4),

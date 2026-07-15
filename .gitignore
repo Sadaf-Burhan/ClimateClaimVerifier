@@ -30,8 +30,12 @@ data/chroma_evidence/
 # OS
 .DS_Store
 
-# Exception: the labeled eval set IS tracked (core project benchmark)
+# Exception: BOTH labeled eval sets ARE tracked (core project benchmarks; Colab clones them).
+# claim_eval_gold.csv = the FROZEN control (never grows); claim_eval.csv = the DYNAMIC set the
+# relabel loop appends to. Keeping them separate is what makes model drift and concept drift
+# distinguishable — see config.yaml `evaluation`.
 !data/claim_eval.csv
+!data/claim_eval_gold.csv
 
 # Week-7 image eval: the labels.jsonl benchmark IS tracked, but the screenshot images are
 # NOT (they're third-party screenshots — keep binaries/copyright out of the public repo).

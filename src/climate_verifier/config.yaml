@@ -89,13 +89,20 @@ vision:                            # Week 7 — GATED image modality (edge cases
   download_timeout: 20              # seconds to fetch an image before giving up
 
 evaluation:
-  claim_eval_csv: data/claim_eval.csv   # hand-labeled eval set. STARTED at 60 stratified posts; it now
-                                        #   GROWS via the admin relabel loop (~100 and counting) — that
-                                        #   growth is the point: a fixed set only catches model/env
-                                        #   regressions, while a growing one is what makes the drift chart
-                                        #   a true CONCEPT-drift signal. Don't hardcode a size anywhere.
-                                        #   NB: Colab evaluates the COMMITTED csv — commit relabels or
-                                        #   they never reach the benchmark.
+  # TWO eval sets, deliberately SEPARATE — they answer different questions, and merging them (as we
+  # did until 2026-07-15) makes both unreadable: you can never tell whether a recall move came from
+  # the model changing or the test set getting harder. Each maintenance pass evaluates BOTH and logs
+  # one drift line each, tagged `eval_set`.
+  #
+  # GOLD = the frozen control. 100 posts (48 claim / 52 opinion), NEVER appended to. The data is
+  #   constant, so ANY movement here is the MODEL or the ENVIRONMENT — this is what gives you the
+  #   +/- jitter band and catches regressions. Never let the relabel loop touch this file.
+  gold_eval_csv: data/claim_eval_gold.csv
+  # DYNAMIC = grows via the admin relabel loop. Movement here mixes model change WITH distribution
+  #   change, which is the point: it measures CONCEPT drift — does the model generalize to the new
+  #   hard cases the relabel queue keeps surfacing? Read it against gold, never alone.
+  #   NB: Colab evaluates the COMMITTED csv — commit relabels or they never reach the benchmark.
+  claim_eval_csv: data/claim_eval.csv
   claim_recall_target: 0.90             # success criterion — a missed claim (FN) is the costly, unrecoverable error
 
 ingestion:
