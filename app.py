@@ -45,7 +45,7 @@ from climate_verifier.pipeline.vision import (
     extract_from_image, screenshot_signal_inputs, looks_like_social_post,
 )
 from climate_verifier.pipeline.relabel import (
-    get_relabel_candidates, apply_relabel, mark_reviewed_ok, eval_post_types,
+    get_relabel_candidates, get_signal_candidates, apply_relabel, mark_reviewed_ok, eval_post_types,
 )
 from climate_verifier.ingestion.bluesky import fetch_post_by_url
 from climate_verifier.ingestion.store import get_last_ingestion_time, hours_since_last_ingestion
@@ -778,6 +778,37 @@ def maintenance():
         "🔵 Claims with no supporting evidence", cands["claim_to_opinion"], "opinion",
         "Classified CLAIM but nothing corroborates it. **Lower confidence** — the headline-only corpus "
         "means real claims often lack a match, so review carefully.")
+
+    # ── Lane 2: signal-ranked, any reach (benchmark growth) ──────────────────────────────────
+    # The queue above ranks by ENGAGEMENT, which is right for the red-flag product but wrong for
+    # growing the eval set: the classifier's blind spots don't correlate with likes, so a 0-like
+    # wire headline it misreads is as valuable an example as a 295-like one. This lane sweeps the
+    # WHOLE corpus with cheap text/metadata signals (no retrieval) and ignores reach entirely.
+    st.divider()
+    st.subheader("🔬 Signal-nominated — any reach")
+    st.caption("Sweeps **every** post (not just the top-N by engagement) for label contradictions the "
+               "classifier's blind spots hide at low reach. Ranked by **signal strength**; engagement "
+               "is only a tie-break. This is the lane that grows the benchmark.")
+    if st.button("🔬 Sweep the whole corpus by signal", type="primary"):
+        with st.spinner("Sweeping all posts (cheap signals — no retrieval)…"):
+            st.session_state["signal_cands"] = get_signal_candidates(DB_PATH, cfg, store=_trust_store())
+        st.session_state.setdefault("relabel_done", {})
+    sc = st.session_state.get("signal_cands")
+    if sc is None:
+        st.info("Click **Sweep** to nominate by signal instead of reach.")
+    else:
+        st.markdown(f"**{len(sc['strong'])} strong** · {len(sc['weak'])} weak (lower confidence).")
+        _render_relabel_section(
+            "🟢 Strong signal — an outlet posting its own story", sc["strong"], "claim",
+            "Classified OPINION, but the post text IS the headline of the credible article it links, "
+            "or it comes from an official account — that's reporting, not commentary. The highest-value "
+            "missed claims, at ANY reach.")
+        st.divider()
+        _render_relabel_section(
+            "🟡 Weak signal — links a credible source", sc["weak"], "claim",
+            "Classified OPINION and it cites a credible source. **Noisy on purpose:** sharing an article "
+            "with a vibes caption is legitimately an OPINION, so many of these are the model being RIGHT. "
+            "A backlog to mine, not a queue to clear.")
 
     st.divider()
     # Relabeling is what grows the benchmark, so this is where the admin most needs to see that a

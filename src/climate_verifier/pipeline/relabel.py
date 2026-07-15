@@ -24,7 +24,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from climate_verifier.pipeline.evidence import assess_claim
+from climate_verifier.pipeline.evidence import assess_claim, extract_citations, is_official
 
 
 def _norm_words(s: str) -> str:
@@ -121,6 +121,80 @@ def get_relabel_candidates(store, db_path: str, cfg: dict, scan_limit: int = 100
         elif r["has_claim"] == 1 and not why and s["news_status"] == "NO MATCH":  # CLAIM, no support
             to_opinion.append(cand)
     return {"opinion_to_claim": to_claim, "claim_to_opinion": to_opinion}
+
+
+def get_signal_candidates(db_path: str, cfg: dict, store=None, limit: int = 60) -> dict:
+    """The BENCHMARK-GROWTH lane: sweep the WHOLE corpus with CHEAP deterministic signals and
+    nominate contradicted OPINIONs ranked by SIGNAL STRENGTH, not reach.
+
+    Why a second lane: `get_relabel_candidates` ranks by engagement and caps the scan, because it
+    calls assess_claim (a vector search) per post. That's correct for the RED-FLAG product — a
+    reach-vs-support mismatch only matters at reach — but wrong for growing the eval set, since the
+    classifier's blind spots don't correlate with likes. Measured on the corpus: 65 contradicted
+    opinions exist and only 3 are high-reach enough for the engagement-ranked scan to ever see
+    (e.g. 10 of 11 verbatim-headline cases sit at engagement ranks 429-2759).
+
+    This lane is affordable over all posts because every signal here is pure text/metadata — no
+    retrieval, no LLM (~0.02s for 2.8k posts). Only the small STRONG shortlist is then enriched with
+    news_status, which is the one signal that does need the store.
+
+    Returns {strong, weak} — tiered, because they are NOT equally trustworthy:
+      strong — verbatim credible headline, or an official account: an outlet posting its own story
+               is reporting, not commentary. Review these.
+      weak   — a credible citation alone. "Here's a great Guardian piece, so depressing" links a
+               credible source and is CORRECTLY an opinion. Noisy: a backlog, not a queue.
+    """
+    ev = cfg.get("evidence", {})
+    official_list = ev.get("official_sources", [])
+    credible = ev.get("citation_domains", [])
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    ensure_admin_columns(con)
+    rows = con.execute("""
+        SELECT p.post_id, p.text, p.author, p.external_url, p.external_title, p.keyword_category,
+               c.has_claim, (p.likes + p.reposts + p.replies + p.quotes) AS engagement
+        FROM posts p JOIN classifications c ON p.post_id = c.post_id
+        WHERE p.source = 'bluesky' AND c.has_claim = 0 AND c.admin_label IS NULL
+    """).fetchall()
+    con.close()
+
+    strong, weak = [], []
+    for r in rows:
+        text, url = r["text"] or "", r["external_url"] or ""
+        vdom = verbatim_headline_domain(text, r["external_title"], url, credible)
+        cites = extract_citations(text + " " + url, credible)
+        if vdom:
+            tier, why = "strong", (f"post text IS the headline of its own linked article ({vdom}) "
+                                   "— reporting, not commentary")
+        elif is_official(r["author"], "", official_list):
+            tier, why = "strong", f"official source (@{r['author']})"
+        elif any(c["credible"] for c in cites):
+            doms = ", ".join(sorted({c["domain"] for c in cites if c["credible"]}))
+            tier, why = "weak", (f"links a credible source ({doms}) — but sharing an article with a "
+                                 "vibes caption is legitimately an OPINION, so judge carefully")
+        else:
+            continue
+        cand = {"post_id": r["post_id"], "text": text, "author": r["author"] or "",
+                "engagement": r["engagement"], "keyword_category": r["keyword_category"] or "",
+                "external_url": url, "has_claim": r["has_claim"],
+                "news_status": "not checked", "why": why}
+        (strong if tier == "strong" else weak).append(cand)
+
+    # Engagement is only a TIE-BREAK here (show the most-seen first) — never a filter, which is the
+    # entire point of this lane.
+    strong.sort(key=lambda c: -c["engagement"])
+    weak.sort(key=lambda c: -c["engagement"])
+    strong, weak = strong[:limit], weak[:limit]
+
+    if store is not None:                      # enrich only the small strong list with news_status
+        for c in strong:
+            try:
+                a = assess_claim(store, c["text"], engagement=c["engagement"], source="bluesky",
+                                 author=c["author"], cfg=cfg, external_url=c["external_url"])
+                c["news_status"] = a["signal"]["news_status"]
+            except Exception:
+                pass
+    return {"strong": strong, "weak": weak}
 
 
 def set_admin_label(db_path: str, post_id: str, admin_label: int) -> None:
