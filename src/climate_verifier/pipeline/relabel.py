@@ -19,6 +19,7 @@ Nominations run both directions:
 """
 
 import csv
+import json
 import re
 import sqlite3
 from datetime import datetime, timezone
@@ -26,6 +27,24 @@ from pathlib import Path
 
 from climate_verifier.pipeline.evidence import assess_claim, extract_citations, is_official
 from climate_verifier.pipeline.topic_filter import is_na_relevant
+
+# The admin overrides LOG — the source of truth for human label judgments, and git-tracked.
+#
+# Why this file exists at all: `classifications.admin_label` used to be the only home for an
+# override, and `ingested.db` is STATE that gets replaced wholesale on every Colab round-trip. So
+# every relabel was irreplaceable human judgment stored in the most disposable file in the project,
+# and the round-trip silently ate it: 5 of the 14 relabels committed on 2026-07-15 came back with
+# admin_label NULL, and because the nomination queries filter `admin_label IS NULL`, those posts
+# re-entered the review queue as though they had never been judged. An uncommitted relabel died
+# outright — CSV row and override both.
+#
+# So overrides live HERE (append-only, one JSON per line, git-tracked, last line wins per post_id)
+# and the DB column becomes a derived CACHE, rebuilt by `apply_overrides`. That matches the ops
+# rule already in force elsewhere: logs accumulate, state gets versioned. A human decision is a
+# log entry, not state — it can never be recomputed, so it must never live only in a file we throw
+# away. Append-only (rather than rewriting a dict) keeps every change of mind in git history and
+# makes concurrent appends safe.
+ADMIN_OVERRIDES_PATH = Path("data/admin_overrides.jsonl")
 
 
 def _norm_words(s: str) -> str:
@@ -208,13 +227,85 @@ def get_signal_candidates(db_path: str, cfg: dict, store=None, limit: int = 60) 
     return {"strong": strong, "weak": weak}
 
 
-def set_admin_label(db_path: str, post_id: str, admin_label: int) -> None:
-    """Write the admin override (1 = claim, 0 = opinion) + timestamp. The app prefers this over
-    the model's `has_claim`, so users see the corrected label on refresh."""
+def load_overrides(path: Path | str = ADMIN_OVERRIDES_PATH) -> dict[str, dict]:
+    """Read the overrides log, newest-wins per post_id. Returns {post_id: {admin_label, ts, source}}.
+
+    Last line wins because the log is append-only: changing your mind appends a new line rather
+    than rewriting history, so git keeps the whole trail. Malformed lines are skipped, never
+    raised — a corrupt line must not take the app down with it."""
+    p = Path(path)
+    if not p.exists():
+        return {}
+    out: dict[str, dict] = {}
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+            if rec.get("post_id") is not None and rec.get("admin_label") is not None:
+                out[rec["post_id"]] = rec          # later line overwrites earlier = newest wins
+        except json.JSONDecodeError:
+            continue
+    return out
+
+
+def record_override(post_id: str, admin_label: int, source: str = "relabel",
+                    path: Path | str = ADMIN_OVERRIDES_PATH, ts: str | None = None) -> dict:
+    """Append one override to the git-tracked log. This is the write that MUST survive; the DB
+    column is only a cache of it."""
+    rec = {
+        "post_id": post_id,
+        "admin_label": int(admin_label),
+        "ts": ts or datetime.now(timezone.utc).isoformat(),
+        "source": source,
+    }
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "a", encoding="utf-8") as f:
+        f.write(json.dumps(rec) + "\n")
+    return rec
+
+
+def apply_overrides(db_path: str, path: Path | str = ADMIN_OVERRIDES_PATH) -> dict:
+    """Replay the overrides log onto the DB's cache column. Idempotent — run it after ANY import
+    that replaces `ingested.db` (a Colab export, a backup restore), or the human judgments are
+    gone and every reviewed post floods back into the nomination queue.
+
+    Returns {applied, missing}: `missing` counts overrides whose post is no longer in the corpus,
+    which is expected and harmless — the Bluesky refresher expires posts after 14 days, while the
+    log keeps the decision forever."""
+    overrides = load_overrides(path)
+    if not overrides:
+        return {"applied": 0, "missing": 0}
+    con = sqlite3.connect(db_path)
+    ensure_admin_columns(con)
+    applied = missing = 0
+    for pid, rec in overrides.items():
+        cur = con.execute(
+            "UPDATE classifications SET admin_label = ?, admin_labeled_at = ? WHERE post_id = ?",
+            (int(rec["admin_label"]), rec.get("ts"), pid))
+        if cur.rowcount:
+            applied += 1
+        else:
+            missing += 1
+    con.commit()
+    con.close()
+    return {"applied": applied, "missing": missing}
+
+
+def set_admin_label(db_path: str, post_id: str, admin_label: int,
+                    source: str = "relabel", overrides_path: Path | str = ADMIN_OVERRIDES_PATH) -> None:
+    """Record an admin override (1 = claim, 0 = opinion).
+
+    Writes the git-tracked LOG first, then the DB cache. Order matters: if the process dies between
+    the two, the log still holds the judgment and `apply_overrides` restores the cache. The reverse
+    order would lose it on the next round-trip, which is the bug this whole file exists to fix."""
+    rec = record_override(post_id, admin_label, source=source, path=overrides_path)
     con = sqlite3.connect(db_path)
     ensure_admin_columns(con)
     con.execute("UPDATE classifications SET admin_label = ?, admin_labeled_at = ? WHERE post_id = ?",
-                (admin_label, datetime.now(timezone.utc).isoformat(), post_id))
+                (int(admin_label), rec["ts"], post_id))
     con.commit()
     con.close()
 
@@ -257,5 +348,67 @@ def apply_relabel(db_path: str, csv_path: str, post_id: str, post_text: str, cor
 
 def mark_reviewed_ok(db_path: str, post_id: str, model_label: int) -> None:
     """Reject a nomination = the model was right. Stamp admin_label = model's label so it leaves
-    the queue and the displayed label is unchanged. No eval-CSV append."""
-    set_admin_label(db_path, post_id, model_label)
+    the queue and the displayed label is unchanged. No eval-CSV append.
+
+    Tagged `reviewed_ok` in the log so "I judged this and the model was right" stays distinguishable
+    from "I corrected this" — it has no eval-CSV row to recover it from, so the log is its ONLY
+    record."""
+    set_admin_label(db_path, post_id, model_label, source="reviewed_ok")
+
+
+def main():
+    """Admin-override CLI. The cheap escape hatch for "I copied ingested.db back and my labels are
+    gone": `maintenance` also replays the log, but only as part of classify/vision/reindex/evaluate,
+    which is far too expensive to run just to restore a column."""
+    import argparse
+    import sys
+    import yaml
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    cfg_path = Path(__file__).parent.parent / "config.yaml"
+    with open(cfg_path) as f:
+        cfg = yaml.safe_load(f)
+    db_default = cfg["storage"]["db_path"]
+
+    parser = argparse.ArgumentParser(
+        description="Admin label overrides — the git-tracked source of truth for human judgments.")
+    parser.add_argument("--apply", action="store_true",
+                        help="replay the overrides log onto the DB (run after ANY import that "
+                             "replaces ingested.db)")
+    parser.add_argument("--status", action="store_true",
+                        help="compare the log against the DB and report any drift")
+    parser.add_argument("--db", default=db_default, help=f"database path (default: {db_default})")
+    parser.add_argument("--log", default=str(ADMIN_OVERRIDES_PATH),
+                        help=f"overrides log (default: {ADMIN_OVERRIDES_PATH})")
+    args = parser.parse_args()
+
+    if args.apply:
+        res = apply_overrides(args.db, args.log)
+        print(f"Applied {res['applied']} admin override(s) to {args.db}."
+              + (f" {res['missing']} post(s) are no longer in the corpus (expired — harmless)."
+                 if res["missing"] else ""))
+        return
+    if args.status:
+        log = load_overrides(args.log)
+        con = sqlite3.connect(args.db)
+        ensure_admin_columns(con)
+        in_db = {r[0]: r[1] for r in con.execute(
+            "SELECT post_id, admin_label FROM classifications WHERE admin_label IS NOT NULL")}
+        con.close()
+        # Drift in either direction is a bug worth naming: an override only in the DB is one the log
+        # never captured (it will die on the next round-trip); a mismatch means the cache is stale.
+        only_db = [p for p in in_db if p not in log]
+        stale = [p for p, r in log.items() if p in in_db and in_db[p] != int(r["admin_label"])]
+        print(f"log: {len(log)} override(s)  ·  db: {len(in_db)} override(s)")
+        print(f"  in the DB but NOT in the log : {len(only_db)}"
+              + ("  <- will be LOST on the next ingested.db replace" if only_db else ""))
+        print(f"  label disagrees with the log : {len(stale)}"
+              + ("  <- run --apply" if stale else ""))
+        if not only_db and not stale:
+            print("  in sync ✅")
+        return
+    parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

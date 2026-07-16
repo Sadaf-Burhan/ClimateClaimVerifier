@@ -30,6 +30,7 @@ from climate_verifier.pipeline.evaluate import (
     run_eval, compute_metrics, snapshot_metrics, format_report,
 )
 from climate_verifier.pipeline import vision
+from climate_verifier.pipeline.relabel import apply_overrides, ADMIN_OVERRIDES_PATH
 from climate_verifier.health import update_health
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
@@ -141,6 +142,28 @@ def main():
     args = parser.parse_args()
 
     cfg = load_cfg()
+
+    # ALWAYS restore admin overrides first, whatever else was asked for.
+    #
+    # Colab clones the repo and pulls ingested.db from Drive, so the DB it works on is whatever
+    # snapshot Drive last held — and its export then replaces the local DB. Any relabel made after
+    # that snapshot has its admin_label wiped, and since the nomination queries filter
+    # `admin_label IS NULL`, every wiped post floods back into the review queue as if it had never
+    # been judged. That already cost 5 of the 14 relabels committed on 2026-07-15.
+    #
+    # The overrides log is git-tracked, so the clone always carries it: replaying it here makes the
+    # DB's cache column self-healing rather than depending on anyone remembering a manual step.
+    # Unconditional and outside the failure loop — it is a cheap UPDATE per override, and if it
+    # cannot run, every downstream count is quietly wrong.
+    try:
+        res = apply_overrides(cfg["storage"]["db_path"])
+        if res["applied"] or res["missing"]:
+            print(f"[overrides] restored {res['applied']} admin label(s) from "
+                  f"{ADMIN_OVERRIDES_PATH}" +
+                  (f"; {res['missing']} post(s) have aged out of the corpus" if res["missing"] else ""))
+    except Exception as e:
+        print(f"[overrides] FAILED to restore admin labels: {type(e).__name__}: {e}")
+
     do_all = args.all or not any([args.classify, args.vision, args.reindex, args.evaluate])
     # keep the causal order: classify produces claims, vision annotates them, reindex makes
     # evidence retrievable, evaluate scores the classifier (independent, runs last).
