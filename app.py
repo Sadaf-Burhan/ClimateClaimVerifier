@@ -27,6 +27,10 @@ from climate_verifier.pipeline.claim_classifier import (
     classify_batch,
     classify_lean,
     get_stats,
+    # The admin relabel guide renders this VERBATIM. Imported rather than transcribed so the guide
+    # can never drift from the definition the model is actually given — the admin's labels are the
+    # ground truth the classifier is scored against, so the two must be the same text.
+    _SYSTEM_PROMPT,
 )
 from climate_verifier.pipeline.evaluate import (
     load_eval_set,
@@ -728,36 +732,82 @@ def _render_static_eval():
                 st.success("No misclassifications.")
 
 
+def _render_labeling_guide():
+    """The relabel criteria, pinned in the SIDEBAR — the only surface that stays visible while you
+    scroll the queue, so the definition is in front of you AS you judge rather than read once and
+    forgotten.
+
+    It renders the classifier's own `_SYSTEM_PROMPT` VERBATIM (imported, never transcribed) on
+    purpose. The admin's label becomes the ground truth the classifier is SCORED against, so if the
+    admin judges by a different definition than the model was handed, the eval stops measuring model
+    error and starts measuring a disagreement about definitions — and every relabel drags the
+    benchmark further from what the model was ever asked to do. A wrong relabel is worse than none:
+    it is permanent, it is committed, and it silently teaches the wrong boundary. Copy-pasting the
+    criteria here would let the guide and the prompt drift apart, which is the same failure one level
+    up, so the prompt is the single source of truth even though it's a private name.
+    """
+    with st.sidebar:
+        with st.expander("📖 Labeling criteria — read before relabeling", expanded=False):
+            st.caption("⚖️ **Your label becomes the ground truth the classifier is scored against.** "
+                       "Judge by the *same* definition the model is given — below, verbatim from its "
+                       "prompt — or the eval measures a definition mismatch instead of model error.")
+            with st.container(height=420):
+                st.markdown("**① The three rules that catch almost every bad relabel**")
+                st.markdown(
+                    "1. **A claim need NOT be true.** A false or conspiratorial assertion is still a "
+                    "**CLAIM** if it is specific and checkable.\n"
+                    "2. **Tone is irrelevant.** Sarcasm, fury, jokes, hyperbole — none of it makes a "
+                    "post an opinion if *one* checkable assertion is in there.\n"
+                    "3. **“No source” is NEVER a reason for OPINION.** Checkability ≠ evidence. Only "
+                    "the **absence of a specific assertion** makes something an opinion.")
+                st.markdown("**② The classifier's exact instructions** (imported from "
+                            "`claim_classifier._SYSTEM_PROMPT` — this text *is* the prompt):")
+                st.code(_SYSTEM_PROMPT, language=None, wrap_lines=True)
+                st.warning("⚠️ **Known scope conflict:** the prompt says *“in North America”*, but the "
+                           "corpus and benchmark are global — Arctic/Antarctic/UK claims are labeled "
+                           "CLAIM (10 of 56 dynamic claim rows). Unresolved: either the prompt's scope "
+                           "is stale or those rows are. Be aware it may show up as false negatives.")
+                st.markdown("**③ Which *thought* (post_type) to pick** — the reasoning category the "
+                            "post exemplifies, so hand-labels stay consistent. The label and the "
+                            "thought must **agree**: an OPINION carrying a CLAIM thought is a "
+                            "contradiction (it's how two bad relabels were caught).")
+                st.markdown(
+                    "**CLAIM thoughts** — a specific, checkable assertion (true *or* false):\n"
+                    "- `news_event` — named place + specific measurement/event\n"
+                    "- `news_headline_verbatim` — the post text IS the headline of the credible "
+                    "article it links (an outlet posting its own story: reporting, not commentary). "
+                    "A known classifier blind spot.\n"
+                    "- `official_alert` — official source + verifiable warning/comparison\n"
+                    "- `scientific_finding` — specific superlative + named period/metric\n"
+                    "- `false_but_checkable` — specific mechanism/effect/location, structurally a "
+                    "claim *even if false*\n"
+                    "- `denial_with_stat` — a denial that cites a checkable stat/source\n"
+                    "- `mixed_emotion_fact` — emotion wrapped around a verifiable fact/warning\n\n"
+                    "**OPINION thoughts** — no specific checkable assertion:\n"
+                    "- `emotional_reaction` — feeling, no factual content\n"
+                    "- `political_viewpoint` — stance, no verifiable claim\n"
+                    "- `hyperbole_doom` — prediction without sourcing/evidence\n"
+                    "- `vague_conspiracy` — accusation with no specific evidence\n"
+                    "- `personal_narrative` — the poster's own lived experience\n"
+                    "- `sarcasm_joke` / `rhetorical_question` — nothing asserted\n\n"
+                    "**`real_data`** — provenance tag; use only if no reasoning type fits. "
+                    "**Notes** = the one-line *why*.")
+                st.caption("Use snake_case for new thoughts — casing variants bucket separately in "
+                           "the by-post-type error breakdown.")
+
+
 def maintenance():
     st.title("🔧 Maintenance — Admin")
     if not _admin_authed():
         return
     st.success("Signed in as admin.")
+    _render_labeling_guide()   # sidebar: stays visible while scrolling the queue
     st.caption("**Relabel review queue.** Evidence-nominated label mismatches. Confirming a relabel writes "
                "an **admin override** (users see the corrected label on refresh) **and** appends the "
                "corrected `(post, label, thought)` to the eval benchmark (`claim_eval.csv`). Users can never relabel.")
-    with st.expander("📖 Labeling guide — which *thought* (post_type) to pick"):
-        st.markdown(
-            "Pick the **reasoning category** the post exemplifies (not just claim/opinion) so hand-labels "
-            "stay consistent. Choose an existing one when it fits; add a new one only for a genuinely new pattern.\n\n"
-            "**CLAIM thoughts** — a specific, checkable assertion (true *or* false):\n"
-            "- `news_event` — named place + specific measurement/event\n"
-            "- `news_headline_verbatim` — the post text IS the headline of the credible article it "
-            "links (an outlet posting its own story: reporting, not commentary). A known classifier "
-            "blind spot — worth its own bucket so the error breakdown shows it.\n"
-            "- `official_alert` — official source + verifiable warning/comparison\n"
-            "- `scientific_finding` — specific superlative + named period/metric\n"
-            "- `false_but_checkable` — specific mechanism/effect/location, structurally a claim *even if false*\n"
-            "- `denial_with_stat` — a denial that cites a checkable stat/source\n"
-            "- `mixed_emotion_fact` — emotion wrapped around a verifiable fact/warning\n\n"
-            "**OPINION thoughts** — no specific checkable assertion:\n"
-            "- `emotional_reaction` — feeling, no factual content\n"
-            "- `political_viewpoint` — stance, no verifiable claim\n"
-            "- `hyperbole_doom` — prediction without sourcing/evidence\n"
-            "- `vague_conspiracy` — accusation with no specific evidence\n"
-            "- `sarcasm_joke` / `rhetorical_question` — nothing asserted\n\n"
-            "**`real_data`** — provenance tag for real-ingested posts; use it only if none of the reasoning "
-            "types fit. **Notes** = the one-line *why* (e.g. *“official source + specific verifiable comparison”*).")
+    st.info("📖 **Before you relabel:** the criteria are pinned in the **sidebar** (← *Labeling criteria*) "
+            "so you can keep them open while working through the list. Your label becomes ground truth — "
+            "a wrong one is permanent and teaches the classifier the wrong boundary.")
     scan = st.slider("Posts to scan (top by engagement)", 40, 300, 100, step=20)
     if st.button("🔍 Scan for relabel candidates", type="primary"):
         with st.spinner(f"Assessing the top {scan} posts…"):
