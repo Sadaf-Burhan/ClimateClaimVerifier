@@ -27,10 +27,6 @@ from climate_verifier.pipeline.claim_classifier import (
     classify_batch,
     classify_lean,
     get_stats,
-    # The admin relabel guide renders this VERBATIM. Imported rather than transcribed so the guide
-    # can never drift from the definition the model is actually given — the admin's labels are the
-    # ground truth the classifier is scored against, so the two must be the same text.
-    _SYSTEM_PROMPT,
 )
 from climate_verifier.pipeline.evaluate import (
     load_eval_set,
@@ -737,63 +733,67 @@ def _render_labeling_guide():
     scroll the queue, so the definition is in front of you AS you judge rather than read once and
     forgotten.
 
-    It renders the classifier's own `_SYSTEM_PROMPT` VERBATIM (imported, never transcribed) on
-    purpose. The admin's label becomes the ground truth the classifier is SCORED against, so if the
-    admin judges by a different definition than the model was handed, the eval stops measuring model
-    error and starts measuring a disagreement about definitions — and every relabel drags the
-    benchmark further from what the model was ever asked to do. A wrong relabel is worse than none:
-    it is permanent, it is committed, and it silently teaches the wrong boundary. Copy-pasting the
-    criteria here would let the guide and the prompt drift apart, which is the same failure one level
-    up, so the prompt is the single source of truth even though it's a private name.
+    Deliberately SHORT: this replaced a verbatim dump of `claim_classifier._SYSTEM_PROMPT`, which was
+    accurate but too long to actually read while working a queue — an unread guide protects nothing.
+
+    The tradeoff that dump was buying is real, though: the admin's label becomes the ground truth the
+    classifier is SCORED against, so if the guide drifts from the prompt the eval stops measuring
+    model error and starts measuring a disagreement about definitions. Two things hold that line here:
+    the worked examples are lifted verbatim from the prompt's own few-shot block (so they cannot teach
+    a boundary the model was never shown), and `claim_classifier._SYSTEM_PROMPT` remains the single
+    source of truth. **If you change how that prompt defines claim vs opinion, update these bullets in
+    the same commit.**
+
+    No hard-coded counts live here on purpose — the previous scope note quoted "10 of 56 rows" and was
+    wrong in both numbers within a session, because the eval set grows underneath it.
     """
     with st.sidebar:
         with st.expander("📖 Labeling criteria — read before relabeling", expanded=False):
             st.caption("⚖️ **Your label becomes the ground truth the classifier is scored against.** "
-                       "Judge by the *same* definition the model is given — below, verbatim from its "
-                       "prompt — or the eval measures a definition mismatch instead of model error.")
-            with st.container(height=420):
-                st.markdown("**① The three rules that catch almost every bad relabel**")
-                st.markdown(
-                    "1. **A claim need NOT be true.** A false or conspiratorial assertion is still a "
-                    "**CLAIM** if it is specific and checkable.\n"
-                    "2. **Tone is irrelevant.** Sarcasm, fury, jokes, hyperbole — none of it makes a "
-                    "post an opinion if *one* checkable assertion is in there.\n"
-                    "3. **“No source” is NEVER a reason for OPINION.** Checkability ≠ evidence. Only "
-                    "the **absence of a specific assertion** makes something an opinion.")
-                st.markdown("**② The classifier's exact instructions** (imported from "
-                            "`claim_classifier._SYSTEM_PROMPT` — this text *is* the prompt):")
-                st.code(_SYSTEM_PROMPT, language=None, wrap_lines=True)
-                st.warning("⚠️ **Known scope conflict:** the prompt says *“in North America”*, but the "
-                           "corpus and benchmark are global — Arctic/Antarctic/UK claims are labeled "
-                           "CLAIM (10 of 56 dynamic claim rows). Unresolved: either the prompt's scope "
-                           "is stale or those rows are. Be aware it may show up as false negatives.")
-                st.markdown("**③ Which *thought* (post_type) to pick** — the reasoning category the "
-                            "post exemplifies, so hand-labels stay consistent. The label and the "
-                            "thought must **agree**: an OPINION carrying a CLAIM thought is a "
-                            "contradiction (it's how two bad relabels were caught).")
-                st.markdown(
-                    "**CLAIM thoughts** — a specific, checkable assertion (true *or* false):\n"
-                    "- `news_event` — named place + specific measurement/event\n"
-                    "- `news_headline_verbatim` — the post text IS the headline of the credible "
-                    "article it links (an outlet posting its own story: reporting, not commentary). "
-                    "A known classifier blind spot.\n"
-                    "- `official_alert` — official source + verifiable warning/comparison\n"
-                    "- `scientific_finding` — specific superlative + named period/metric\n"
-                    "- `false_but_checkable` — specific mechanism/effect/location, structurally a "
-                    "claim *even if false*\n"
-                    "- `denial_with_stat` — a denial that cites a checkable stat/source\n"
-                    "- `mixed_emotion_fact` — emotion wrapped around a verifiable fact/warning\n\n"
-                    "**OPINION thoughts** — no specific checkable assertion:\n"
-                    "- `emotional_reaction` — feeling, no factual content\n"
-                    "- `political_viewpoint` — stance, no verifiable claim\n"
-                    "- `hyperbole_doom` — prediction without sourcing/evidence\n"
-                    "- `vague_conspiracy` — accusation with no specific evidence\n"
-                    "- `personal_narrative` — the poster's own lived experience\n"
-                    "- `sarcasm_joke` / `rhetorical_question` — nothing asserted\n\n"
-                    "**`real_data`** — provenance tag; use only if no reasoning type fits. "
-                    "**Notes** = the one-line *why*.")
-                st.caption("Use snake_case for new thoughts — casing variants bucket separately in "
-                           "the by-post-type error breakdown.")
+                       "Judge by the *same* definition the model is given.")
+
+            st.markdown(
+                "**CLAIM** — makes at least one specific assertion that could be checked against an "
+                "external record: a named place, a measurement, an official warning, an attributed "
+                "study, or a specific cause.\n\n"
+                "**OPINION** — nothing checkable: feelings, jokes, sarcasm, the poster's own "
+                "experience, rhetorical questions, vague predictions, general political views.")
+
+            st.markdown("**The three rules that catch almost every bad relabel**")
+            st.markdown(
+                "1. **A claim need NOT be true.** A false or conspiratorial assertion is still a "
+                "**CLAIM** if it is specific and checkable.\n"
+                "2. **Tone is irrelevant.** Sarcasm, fury, jokes, hyperbole — none of it makes a "
+                "post an opinion if *one* checkable assertion is in there.\n"
+                "3. **“No source” is NEVER a reason for OPINION.** Checkability ≠ evidence. Only "
+                "the **absence of a specific assertion** makes something an opinion.")
+
+            st.markdown("**Two posts that show where the line sits**")
+            st.markdown(
+                "> *“So angry right now, the river gauge here just hit major flood stage”*\n\n"
+                "**CLAIM.** Furious in tone, but *major flood stage at a river gauge* is on the "
+                "record and checkable. Tone never decides it (rule 2).\n\n"
+                "> *“My basement flooded again, this town is cursed”*\n\n"
+                "**OPINION.** Also flooding, also emotional — but it is the poster's own experience, "
+                "and nothing external can confirm it.")
+
+            st.caption("⚠️ **Scope:** the prompt says *“in North America”*, but a few Arctic/Antarctic "
+                       "rows are labeled CLAIM. Geography is really enforced upstream at ingestion, "
+                       "not by your label — so don't call a post OPINION just for being outside NA.")
+
+            st.markdown("**Pick the *thought* (post_type)** — the reasoning category the post "
+                        "exemplifies. It must **agree** with your label: an OPINION carrying a CLAIM "
+                        "thought is a contradiction (it's how two bad relabels were caught).")
+            st.markdown(
+                "**CLAIM** · `news_event` · `official_alert` · `scientific_finding` · "
+                "`false_but_checkable` · `denial_with_stat` · `mixed_emotion_fact` · "
+                "`news_headline_verbatim` *(post text IS the headline of the credible article it "
+                "links — reporting, not commentary; a known classifier blind spot)*\n\n"
+                "**OPINION** · `emotional_reaction` · `political_viewpoint` · `hyperbole_doom` · "
+                "`vague_conspiracy` · `personal_narrative` · `sarcasm_joke` · `rhetorical_question`\n\n"
+                "`real_data` is a provenance tag — use only if no reasoning type fits. "
+                "**Notes** = the one-line *why*. snake_case only (casing variants bucket separately "
+                "in the error breakdown).")
 
 
 def maintenance():
@@ -1038,42 +1038,37 @@ def trust_results():
 # ═══════════════════════════════════════════════════════════════════════════════
 def classification_eval():
 
-    # ── Ingestion status: TWO facts, because they can disagree and the difference is diagnostic ──
+    # ── Ingestion status: ONE line, because two facts can disagree and only the gap is news ──
     # "Last completed cycle" is the metadata stamp, written only when a run finishes end-to-end.
-    # "Newest post" is real data. save() commits per keyword while the fetch loop re-raises on
-    # error, so a failed/interrupted run leaves posts with no stamp. Showing only the stamp reports
-    # "overdue — nothing happened" while sitting on thousands of fresh posts (it did exactly that
-    # after the Jul 14/15 runs died mid-cycle). Showing only the newest post would hide the failure.
+    # "Newest post" is real data: save() commits per keyword while the fetch loop re-raises on error,
+    # so an interrupted run leaves posts with no stamp. Report the stamp alone and you get "overdue —
+    # nothing happened" while sitting on fresh posts; report the newest post alone and the failure
+    # hides. So both are read, but only ONE verdict is shown — an interrupted cycle IS why the stamp
+    # is old, and firing "overdue" next to "a run died" is two alarms for one fact.
+    #
+    # Data freshness leads, because that is what decides whether the numbers below are worth reading.
+    # The recovery detail (health.json, the Colab overwrite caveat) is deliberately NOT here: it's
+    # maintainer lore, it went stale on its own, and it doesn't change what you'd do next — re-run.
     last_ingest = get_last_ingestion_time(DB_PATH)
-    last_post = get_last_post_ingested_at(DB_PATH)
-    interval = cfg["ingestion"]["interval_hours"]
-    if last_ingest:
-        elapsed = hours_since_last_ingestion(DB_PATH)
-        line = (f"📡 Last **completed** cycle: **{last_ingest.strftime('%Y-%m-%d %H:%M UTC')}** "
-                f"({elapsed:.1f}h ago)")
-        if elapsed < interval:
-            st.info(line + f" · Next due in ~{interval - elapsed:.1f}h")
-        else:
-            st.warning(line + " · Overdue — run the scheduler.")
-    else:
-        st.warning("⚠️ No ingestion cycle has ever **completed**. Start the scheduler to populate the database.")
+    last_post   = get_last_post_ingested_at(DB_PATH)
+    interval    = cfg["ingestion"]["interval_hours"]
+    post_age    = age_hours(last_post.isoformat()) if last_post else None
+    fresh       = (f"newest post **{last_post.strftime('%Y-%m-%d %H:%M UTC')}**"
+                   + (f" ({post_age:.1f}h ago)" if post_age is not None else "")) if last_post else ""
 
     if last_post and (not last_ingest or last_post > last_ingest):
-        age = age_hours(last_post.isoformat())
-        st.error(
-            f"🟠 **A run saved posts but never finished.** Newest post ingested "
-            f"**{last_post.strftime('%Y-%m-%d %H:%M UTC')}**"
-            + (f" ({age:.1f}h ago)" if age is not None else "")
-            + " — *after* the last completed cycle above. Ingestion commits posts as it goes but only "
-            "stamps completion at the very end, so this means a cycle **failed or was interrupted** "
-            "partway. The data it did fetch is safe and already in the corpus. The error is recorded "
-            "in `data/health.json` → `ingestion` — **but a Colab pass overwrites that file unless you "
-            "upload your local `health.json` to Drive too.** Re-run a full cycle to pick up whatever "
-            "it never reached."
-        )
-    elif last_post:
-        st.caption(f"Newest post in the corpus: {last_post.strftime('%Y-%m-%d %H:%M UTC')} — "
-                   "consistent with the last completed cycle.")
+        st.warning(f"📡 Corpus is current — {fresh} — but the last cycle **stopped partway** "
+                   "(posts are committed as they're fetched; completion is stamped only at the end). "
+                   "Fetched data is safe. Re-run the scheduler to pick up what it missed.")
+    elif not last_ingest:
+        st.warning("📡 No ingestion cycle has ever completed. Start the scheduler to populate the database.")
+    else:
+        elapsed = hours_since_last_ingestion(DB_PATH)
+        if elapsed < interval:
+            st.caption(f"📡 Corpus is current — {fresh} · next cycle due in ~{interval - elapsed:.1f}h")
+        else:
+            st.warning(f"📡 Last cycle completed **{elapsed:.1f}h ago** (every {interval}h) — "
+                       f"overdue, run the scheduler · {fresh}")
 
     st.divider()
 
