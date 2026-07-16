@@ -159,12 +159,26 @@ def model_fingerprint(model: str) -> dict:
         import ollama
         resp = ollama.list()
         models = _attr(resp, "models") or []
+        # Exact tag wins. The bare-name fallback (qwen2.5:3b -> qwen2.5) is only a courtesy for a
+        # differently-formatted listing, and it must NEVER outrank an exact hit: matching on the
+        # first model that merely shares a family silently returns a DIFFERENT model's digest —
+        # e.g. a desktop holding both qwen2.5:7b and qwen2.5:3b lists the 7b first, so asking for
+        # the 3b reported the 7b's digest. That turns the one guard against a silent model swap
+        # into a source of them. Ambiguous fallback (2+ family matches, no exact) reports None,
+        # because a wrong digest is worse than a missing one.
+        family = model.split(":")[0]
+        exact, loose = None, []
         for m in models:
             name = _attr(m, "model") or _attr(m, "name") or ""
-            if name == model or name.split(":")[0] == model.split(":")[0]:
-                digest = _attr(m, "digest") or ""
-                out["model_digest"] = str(digest)[:19] or None
+            if name == model:
+                exact = m
                 break
+            if name.split(":")[0] == family:
+                loose.append(m)
+        chosen = exact if exact is not None else (loose[0] if len(loose) == 1 else None)
+        if chosen is not None:
+            digest = _attr(chosen, "digest") or ""
+            out["model_digest"] = str(digest)[:19] or None
     except Exception:
         pass
     try:
