@@ -188,8 +188,9 @@ def main():
     if failures:
         print(f"\nMaintenance finished with failures in: {', '.join(failures)}")
         raise SystemExit(1)      # non-zero → the notebook cell / caller shows the run failed
-    print("\nMaintenance complete — export data/ (ingested.db, eval_history.jsonl, "
-          "health.json, chroma_evidence/) back to the project for the website.")
+    print("\nMaintenance complete — export ingested.db, eval_history.jsonl, health.json back to the "
+          "project. NOT chroma_evidence/: it is derived state — rebuild it locally with "
+          "`evidence --build` (shipping it desyncs the sqlite/segment split).")
 
 
 if __name__ == "__main__":
