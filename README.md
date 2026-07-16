@@ -641,3 +641,35 @@ log and will die on the next round-trip.
 
 Then check the sidebar health chips and the Evaluation drift charts. Read gold and dynamic against
 each other: **gold moved → model/env; only dynamic moved → concept drift; neither → stable.**
+
+### How each artifact is stored
+
+Every artifact falls into one of three classes, and the class dictates how it moves. Most of the
+data-loss bugs this project has hit were an artifact being moved by the wrong rule for its class.
+
+| artifact | class | committed + pushed? | how it gets fresh |
+|---|---|---|---|
+| `data/claim_eval.csv`, `data/claim_eval_gold.csv` | **versioned input** | **yes** | edited by hand / the relabel loop |
+| `data/admin_overrides.jsonl` | **versioned log** (human input) | **yes** | appended on every relabel; **never** recomputable |
+| `data/signal_eval.csv`, `data/image_eval/labels.jsonl` | **versioned input** | **yes** | edited by hand |
+| `data/ingested.db` | **state** | no (gitignored) | Colab classifies it → Drive → you pull; dated backup kept |
+| `data/eval_history.jsonl` | **append-only log** | no (gitignored) | Colab appends one line/run; round-trips via Drive |
+| `data/health.json` | **merged state** | no (gitignored) | each stage writes a heartbeat; round-trips via Drive |
+| `data/chroma_evidence/` | **derived** | **no — never travels** | **rebuilt locally** from `ingested.db` (`evidence --build`) |
+| `data/image_eval/images/` | third-party binaries | no (gitignored) | live only in `<DRIVE>/image_eval_images/` |
+
+**The one rule that keeps the vector index healthy: it is never stored, shipped, or committed —
+only rebuilt.** ChromaDB is a `chroma.sqlite3` metadata file plus separate binary segment folders,
+and any partial or *merged* copy silently breaks the link between them (`count()` reads the sqlite
+side, `query()` reads the segments — they then disagree and every query throws `Error finding id`).
+`ingested.db` is one file and copies atomically; the index is not, so it must never be copied.
+Because it is 100% reconstructible from the DB, the fix is not "copy it carefully" but "regenerate
+it from the thing that *does* copy safely." The Colab notebook builds one during reindex (to score
+`news_status`) and discards it; you build one locally for the app. Two minutes of local compute
+retires an entire class of corruption. **Do not add a `data/chroma_evidence/` export to the
+notebook, and do not pull it from Drive** — that merge is exactly what corrupted it before.
+
+The reasoning behind the split — *logs accumulate, state gets versioned, derived data gets
+rebuilt* — is the load-bearing idea. A human decision (an admin override) is a log entry, not
+state: it can never be recomputed, so it must be git-tracked, never left to live only in the DB
+that the round-trip replaces.
