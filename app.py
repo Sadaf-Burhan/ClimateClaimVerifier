@@ -28,12 +28,7 @@ from climate_verifier.pipeline.claim_classifier import (
     classify_lean,
     get_stats,
 )
-from climate_verifier.pipeline.evaluate import (
-    load_eval_set,
-    run_eval,
-    compute_metrics,
-    load_eval_history,
-)
+from climate_verifier.pipeline.evaluate import load_eval_history
 from climate_verifier.health import load_health, stage_status, age_hours
 from climate_verifier.pipeline.embedder import (
     similarity,
@@ -217,6 +212,55 @@ def _eval_set_status() -> dict:
         except Exception:
             pass
     return {"local_n": local_n, "committed_n": committed_n, "last_eval_n": last_eval_n}
+
+
+def _relabel_push_status() -> dict:
+    """Do the relabel stores need a commit and/or a push?
+
+    Colab clones the benchmark from GitHub, so a relabel only reaches the next GPU eval once it is
+    BOTH committed AND pushed. Two files carry a relabel and BOTH must travel:
+      data/claim_eval.csv        — the benchmark row
+      data/admin_overrides.jsonl — the human label users see (git-tracked source of truth)
+    Row-count checks miss two cases this catches: an uncommitted overrides log (no CSV row change),
+    and a committed-but-unpushed state (git HEAD has it, origin doesn't). Best-effort — returns all
+    False if git is unavailable, so the reminder simply doesn't show rather than lying."""
+    files = ["data/claim_eval.csv", "data/admin_overrides.jsonl"]
+    dirty, unpushed = [], []
+    try:
+        out = subprocess.run(["git", "status", "--porcelain", "--"] + files,
+                             capture_output=True, text=True, encoding="utf-8", timeout=5)
+        dirty = [ln[3:] for ln in out.stdout.splitlines() if ln.strip()]
+    except Exception:
+        pass
+    try:                           # commits on HEAD not on the branch's upstream that touch these files
+        branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                                capture_output=True, text=True, encoding="utf-8", timeout=5).stdout.strip()
+        rng = f"origin/{branch}..HEAD"
+        out = subprocess.run(["git", "log", "--oneline", rng, "--"] + files,
+                             capture_output=True, text=True, encoding="utf-8", timeout=5)
+        unpushed = [ln for ln in out.stdout.splitlines() if ln.strip()]
+    except Exception:
+        pass
+    return {"dirty": dirty, "unpushed": unpushed}
+
+
+def _render_push_reminder():
+    """On the Maintenance page: the ONE thing a relabel still needs from the admin — get it into git
+    so Colab sees it. Evaluation is GPU-only and deferred, so there is nothing to run here; the only
+    open action after relabeling is commit + push."""
+    s = _relabel_push_status()
+    if s["dirty"]:
+        st.warning(
+            "📌 **Uncommitted relabels — push before the next Colab run.** Colab clones the benchmark "
+            "from GitHub, so a relabel is invisible to it until it is committed **and** pushed. Commit "
+            "both stores together (they are one decision):\n\n"
+            "```\ngit add data/claim_eval.csv data/admin_overrides.jsonl\n"
+            "git commit -m \"Commit N relabels\"\ngit push\n```")
+    elif s["unpushed"]:
+        st.warning("⬆️ **Relabels committed but not pushed.** Colab clones from GitHub — run `git push` "
+                   "before the next maintenance pass or your newest labels won't be evaluated.")
+    else:
+        st.success("✅ Relabels are committed and pushed — Colab will see them on the next run.")
 
 
 def _render_eval_freshness():
@@ -649,95 +693,6 @@ def _render_relabel_section(title: str, items: list, corrected_label: str, note:
                 st.rerun()
 
 
-def _render_static_eval():
-    """Point-in-time evaluation: run the classifier on ONE of the two labeled sets and show the
-    confusion matrix, per-class metrics, and error breakdowns. Admin diagnostic — a local run is
-    slow; the canonical eval is the Colab GPU maintenance pass, which is what feeds the drift chart.
-
-    Deliberately NOT called "static" any more: neither set is static. Gold is *frozen* (the control)
-    and dynamic *grows* — "static" described the pre-split world where one CSV served both roles and
-    the relabel loop silently mutated the thing we called static."""
-    st.subheader("📏 Point-in-time evaluation — pick a benchmark")
-    choice = st.radio(
-        "Which eval set?", ["🥇 Gold (frozen control)", "📚 Dynamic (grows with relabels)"],
-        horizontal=True, key="static_eval_set",
-        help="Gold never changes, so it isolates model/env regressions. Dynamic grows with the "
-             "relabel loop, so it measures concept drift on the new hard cases.")
-    is_gold = choice.startswith("🥇")
-    target_csv = GOLD_EVAL_CSV if is_gold else EVAL_CSV
-    st.caption(
-        f"Point-in-time run of the classifier against `{target_csv}` (human ground truth). "
-        + ("**Gold = the frozen control** — the data never changes, so any movement is the model or "
-           "the environment, not the benchmark. "
-           if is_gold else
-           "**Dynamic = the growing set** — it gets harder as you relabel, so a dip here isn't "
-           "automatically a regression; read it against gold. ")
-        + f"Success criterion: **recall on CLAIM ≥ {CLAIM_RECALL_TARGET:.0%}** — a missed claim (false "
-        "negative) is discarded forever (costly); a false positive just surfaces on the dashboard (cheap).")
-    if not target_csv.exists():
-        st.warning(f"`{target_csv}` not found.")
-        return
-    n_eval = len(load_eval_set(str(target_csv)))
-    if st.button(f"Run evaluation ({n_eval} labeled posts)"):
-        with st.spinner(f"Classifying {n_eval} posts with {MODEL}..."):
-            eval_results = run_eval(str(target_csv), model=MODEL, llm_batch_size=LLM_BATCH_SIZE)
-            metrics = compute_metrics(eval_results, claim_recall_target=CLAIM_RECALL_TARGET)
-        st.caption("🔬 Local diagnostic run — not added to the drift log (the drift series is produced by "
-                   "the Colab GPU maintenance pass, for backend-comparable numbers).")
-
-        claim_m = metrics["per_class"]["claim"]
-        asym    = metrics["error_asymmetry"]
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Recall on CLAIM", f"{claim_m['recall']:.3f}", delta=f"target ≥ {CLAIM_RECALL_TARGET:.2f}",
-                  delta_color="normal" if metrics["meets_target"] else "inverse")
-        m2.metric("Precision on CLAIM", f"{claim_m['precision']:.3f}")
-        m3.metric("Accuracy", f"{metrics['accuracy']:.3f}")
-        m4.metric("FN / FP", f"{asym['false_negatives']} / {asym['false_positives']}",
-                  help="False negatives (missed claims — costly) vs false positives (opinions surfaced — cheap)")
-
-        if metrics["meets_target"]:
-            st.success(f"✅ PASS — the gate lets through {claim_m['recall']:.1%} of real claims "
-                       f"(misses {asym['fn_rate']:.1%}); {asym['fp_rate']:.1%} of opinions slip through.")
-        else:
-            st.error(f"❌ BELOW TARGET — {asym['fn_rate']:.1%} of real claims are being discarded at the "
-                     "gate. See the post-type breakdown for where.")
-
-        cm = metrics["confusion_matrix"]
-        col_cm, col_pc = st.columns(2)
-        with col_cm:
-            st.markdown("**Confusion matrix** (positive class = claim)")
-            st.dataframe(pd.DataFrame({
-                "predicted claim":   [cm["true_claim_predicted_claim"], cm["true_opinion_predicted_claim"]],
-                "predicted opinion": [cm["true_claim_predicted_opinion"], cm["true_opinion_predicted_opinion"]],
-            }, index=["actual claim", "actual opinion"]), use_container_width=True)
-        with col_pc:
-            st.markdown("**Per-class metrics**")
-            st.dataframe(pd.DataFrame(metrics["per_class"]).T.round(3), use_container_width=True)
-
-        st.markdown("**Error breakdown** — where the misses are concentrated")
-        col_pt, col_kc = st.columns(2)
-        with col_pt:
-            st.caption("By post type (linguistic shape)")
-            st.dataframe(pd.DataFrame(metrics["by_post_type"]).T.style.format({"error_rate": "{:.1%}"}),
-                         use_container_width=True)
-        with col_kc:
-            st.caption("By keyword category (ingestion taxonomy)")
-            st.dataframe(pd.DataFrame(metrics["by_keyword_category"]).T.style.format({"error_rate": "{:.1%}"}),
-                         use_container_width=True)
-
-        with st.expander(f"Misclassified posts ({len(metrics['misclassified'])})"):
-            if metrics["misclassified"]:
-                for m in metrics["misclassified"]:
-                    direction = ("🔴 FALSE NEGATIVE (missed claim)" if m["expected_label"] == "claim"
-                                 else "🟡 FALSE POSITIVE (opinion surfaced)")
-                    st.markdown(f"{direction} · `{m['post_type']}`")
-                    st.markdown(f"> {m['post_text']}")
-                    st.caption(f"Model reason: {m['reason']}")
-                    st.divider()
-            else:
-                st.success("No misclassifications.")
-
-
 def _render_labeling_guide():
     """The relabel criteria, pinned in the SIDEBAR — the only surface that stays visible while you
     scroll the queue, so the definition is in front of you AS you judge rather than read once and
@@ -884,8 +839,11 @@ def maintenance():
     # Relabeling is what grows the benchmark, so this is where the admin most needs to see that a
     # relabel hasn't counted yet (uncommitted, or no GPU eval since).
     _render_eval_freshness()
-    st.divider()
-    _render_static_eval()   # point-in-time eval lives here (admin); the drift trend is in Evaluation
+    # The only action a relabel still needs from the admin: get it into git so Colab evaluates it.
+    # (No local eval button here on purpose — it runs the classifier on CPU, one call per row, and a
+    # growing dynamic set would stall the app for many minutes. Scoring is the Colab GPU pass's job;
+    # the Evaluation tab shows when that pass is due.)
+    _render_push_reminder()
 
 
 # ── Page Setup ────────────────────────────────────────────────────────────────
@@ -1137,7 +1095,7 @@ def classification_eval():
         "**🥇 Gold** is frozen, so it isolates the **model/environment**; **📚 Dynamic** grows as you "
         "relabel hard cases (🔧 Maintenance), so it measures **concept drift**. You need both: one "
         f"number can't tell them apart. Target: **recall on CLAIM ≥ {CLAIM_RECALL_TARGET:.0%}**. "
-        "The point-in-time run (confusion matrix, breakdowns) lives in **🔧 Maintenance**."
+        "Evaluation is GPU-only — these numbers refresh on the next Colab maintenance pass, not in the app."
     )
     _render_eval_freshness()   # are these numbers even measured on the current benchmark?
     _render_drift()
