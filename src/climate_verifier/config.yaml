@@ -72,6 +72,18 @@ evidence:                          # Week 6 — evidence matching (GDELT news co
     - cbc.ca
     - theguardian.com
     - nytimes.com
+    - washingtonpost.com
+    # Nonprofit climate newsrooms with editorial standards — added 2026-07-15 after auditing what
+    # the corpus actually cites: these were among the most-cited domains getting NO credit, which
+    # means legitimately-sourced posts were being read as "no cited evidence".
+    - insideclimatenews.org      # Pulitzer-winning climate newsroom (19 cites in corpus)
+    - grist.org                  # established climate nonprofit newsroom (7 cites)
+    # NB: UK outlets (theguardian/bbc) stay listed on purpose — credibility is NOT geography. The
+    # NA scope filters the POSTS (topic_filter); a Guardian article about a US wildfire is still a
+    # credible source for an in-scope post.
+    # KNOWN GAP: URL shorteners (bit.ly, share.google, dlvr.it, ow.ly — ~67 posts) hide the real
+    # domain, so a post citing the NYT via bit.ly gets no credit and can be red-flagged as
+    # "uncited". Resolving them needs a redirect fetch at ingestion — see MONITORING.md future work.
     # climate.us — climate-information hub launched by former NOAA scientists. Treated as a
     # credible self-citation so a post that links it as its SUPPORTING article isn't red-flagged
     # and surfaces in the missed-claim queue (the DOGE image-carried-claim case). Newer/less

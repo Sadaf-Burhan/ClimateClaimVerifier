@@ -162,6 +162,16 @@ Colab **clones the benchmark from git** — uncommitted relabels are never evalu
    "The New York Times" (rather than a URL) gets no credible-cite pass even though `nytimes.com` is
    allowlisted. Affects the image path most, where outlets appear as names.
 
+4. **Resolve URL shorteners at ingestion.** ~67 corpus posts cite through `bit.ly` / `share.google` /
+   `dlvr.it` / `ow.ly`, which hide the real domain — so a post citing the NYT via `bit.ly` gets **no**
+   credible-cite credit and can be **red-flagged as "no cited evidence"** while genuinely citing a
+   credible source. That is a false alarm the signal eval (Signal 3) would catch if such a post were
+   in it. Fix = follow the redirect during ingestion and store the resolved domain in `external_url`;
+   costs one network call per shortened link, and ingestion is already I/O-bound and GDELT-rate-limited,
+   so it needs to be batched/cached rather than naive. Measured 2026-07-15 by auditing what the corpus
+   actually cites (that same audit added `insideclimatenews.org` / `washingtonpost.com` / `grist.org`,
+   which were high-frequency cites getting no credit).
+
 4. **Judge/arbiter agent for the final verdict** — when the text classifier and the image path disagree
    (caption is opinion, the card carries the claim), decide the ONE label the user sees. Deferred.
 
