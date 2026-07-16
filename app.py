@@ -48,7 +48,9 @@ from climate_verifier.pipeline.relabel import (
     get_relabel_candidates, get_signal_candidates, apply_relabel, mark_reviewed_ok, eval_post_types,
 )
 from climate_verifier.ingestion.bluesky import fetch_post_by_url
-from climate_verifier.ingestion.store import get_last_ingestion_time, hours_since_last_ingestion
+from climate_verifier.ingestion.store import (
+    get_last_ingestion_time, get_last_post_ingested_at, hours_since_last_ingestion,
+)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 CONFIG_PATH = Path("src/climate_verifier/config.yaml")
@@ -982,24 +984,42 @@ def trust_results():
 # ═══════════════════════════════════════════════════════════════════════════════
 def classification_eval():
 
-    # Ingestion status bar
+    # ── Ingestion status: TWO facts, because they can disagree and the difference is diagnostic ──
+    # "Last completed cycle" is the metadata stamp, written only when a run finishes end-to-end.
+    # "Newest post" is real data. save() commits per keyword while the fetch loop re-raises on
+    # error, so a failed/interrupted run leaves posts with no stamp. Showing only the stamp reports
+    # "overdue — nothing happened" while sitting on thousands of fresh posts (it did exactly that
+    # after the Jul 14/15 runs died mid-cycle). Showing only the newest post would hide the failure.
     last_ingest = get_last_ingestion_time(DB_PATH)
+    last_post = get_last_post_ingested_at(DB_PATH)
+    interval = cfg["ingestion"]["interval_hours"]
     if last_ingest:
-        elapsed  = hours_since_last_ingestion(DB_PATH)
-        interval = cfg["ingestion"]["interval_hours"]
-        next_run = interval - elapsed
+        elapsed = hours_since_last_ingestion(DB_PATH)
+        line = (f"📡 Last **completed** cycle: **{last_ingest.strftime('%Y-%m-%d %H:%M UTC')}** "
+                f"({elapsed:.1f}h ago)")
         if elapsed < interval:
-            st.info(
-                f"📡 Last ingestion: **{last_ingest.strftime('%Y-%m-%d %H:%M UTC')}** "
-                f"({elapsed:.1f}h ago) · Next due in ~{next_run:.1f}h"
-            )
+            st.info(line + f" · Next due in ~{interval - elapsed:.1f}h")
         else:
-            st.warning(
-                f"⚠️ Last ingestion: **{last_ingest.strftime('%Y-%m-%d %H:%M UTC')}** "
-                f"({elapsed:.1f}h ago) · Overdue — run the scheduler."
-            )
+            st.warning(line + " · Overdue — run the scheduler.")
     else:
-        st.warning("⚠️ No ingestion has run yet. Start the scheduler to populate the database.")
+        st.warning("⚠️ No ingestion cycle has ever **completed**. Start the scheduler to populate the database.")
+
+    if last_post and (not last_ingest or last_post > last_ingest):
+        age = age_hours(last_post.isoformat())
+        st.error(
+            f"🟠 **A run saved posts but never finished.** Newest post ingested "
+            f"**{last_post.strftime('%Y-%m-%d %H:%M UTC')}**"
+            + (f" ({age:.1f}h ago)" if age is not None else "")
+            + " — *after* the last completed cycle above. Ingestion commits posts as it goes but only "
+            "stamps completion at the very end, so this means a cycle **failed or was interrupted** "
+            "partway. The data it did fetch is safe and already in the corpus. The error is recorded "
+            "in `data/health.json` → `ingestion` — **but a Colab pass overwrites that file unless you "
+            "upload your local `health.json` to Drive too.** Re-run a full cycle to pick up whatever "
+            "it never reached."
+        )
+    elif last_post:
+        st.caption(f"Newest post in the corpus: {last_post.strftime('%Y-%m-%d %H:%M UTC')} — "
+                   "consistent with the last completed cycle.")
 
     st.divider()
 

@@ -109,6 +109,25 @@ def get_last_ingestion_time(db_path: str) -> datetime | None:
         return None
 
 
+def get_last_post_ingested_at(db_path: str) -> datetime | None:
+    """UTC datetime of the NEWEST post actually saved, or None if the corpus is empty.
+
+    Deliberately different from `get_last_ingestion_time()`, which reads the `last_ingested_at`
+    metadata stamp — and that stamp is written ONLY when a cycle completes end-to-end. Because
+    `save()` commits incrementally per keyword while the fetch loop re-raises on error, a run that
+    dies partway leaves its data behind with no stamp. Comparing these two is what distinguishes
+    "no ingestion has run" from "a run saved 1,500 posts and then failed before finishing" —
+    without it the app reports 'overdue, nothing happened' on top of a corpus that just grew.
+    """
+    try:
+        conn = _get_conn(db_path)
+        row = conn.execute("SELECT MAX(ingested_at) FROM posts").fetchone()
+        conn.close()
+        return datetime.fromisoformat(row[0]) if row and row[0] else None
+    except Exception:
+        return None
+
+
 def set_last_ingestion_time(db_path: str) -> None:
     """Records the current UTC time as the last completed ingestion cycle."""
     conn = _get_conn(db_path)
