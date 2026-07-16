@@ -581,7 +581,17 @@ def _admin_authed() -> bool:
 _ADD_NEW = "➕ Add new thought…"
 
 
-def _render_relabel_section(title: str, items: list, corrected_label: str, note: str = ""):
+def _render_relabel_section(title: str, items: list, corrected_label: str, note: str = "",
+                            key_prefix: str = ""):
+    """`key_prefix` namespaces the WIDGET keys per section, because the two lanes render on the same
+    page and a post can legitimately appear in BOTH: the engagement lane nominates evidence-
+    contradicted opinions, the signal lane nominates verbatim headlines, and a high-reach verbatim
+    headline is both. Same post_id in two sections meant the same widget key twice -> Streamlit
+    raises DuplicateElementKey and the whole page dies.
+
+    `done` stays keyed by the BARE post_id on purpose: it is shared across lanes so that actioning a
+    post in one lane marks it done in the other. That is what stops the same post being relabeled
+    twice and appended to the eval CSV twice."""
     st.subheader(title)
     if note:
         st.caption(note)
@@ -614,14 +624,14 @@ def _render_relabel_section(title: str, items: list, corrected_label: str, note:
                        f"· news: **{c['news_status']}**" + (f" · why: {c['why']}" if c['why'] else ""))
             # The "thought" (post_type) written to the eval set — pick an existing one for consistency,
             # or add a new category. Notes = the specific reason for this label.
-            pt = st.selectbox("Thought (post_type)", types + [_ADD_NEW], key=f"pt_{pid}",
+            pt = st.selectbox("Thought (post_type)", types + [_ADD_NEW], key=f"pt_{key_prefix}_{pid}",
                               help="The reasoning category this post exemplifies — keeps hand-labels consistent.")
             if pt == _ADD_NEW:
-                pt = st.text_input("New thought name (snake_case)", key=f"ptn_{pid}").strip()
-            notes = st.text_input("Notes (why this label)", key=f"nt_{pid}",
+                pt = st.text_input("New thought name (snake_case)", key=f"ptn_{key_prefix}_{pid}").strip()
+            notes = st.text_input("Notes (why this label)", key=f"nt_{key_prefix}_{pid}",
                                   placeholder="e.g. Official source + specific verifiable comparison")
             col1, col2 = st.columns(2)
-            if col1.button(f"✅ Relabel as {corrected_label.upper()}", key=f"rl_{pid}", type="primary"):
+            if col1.button(f"✅ Relabel as {corrected_label.upper()}", key=f"rl_{key_prefix}_{pid}", type="primary"):
                 if not pt:
                     st.warning("Pick or enter a thought (post_type) before relabeling.")
                 else:
@@ -633,7 +643,7 @@ def _render_relabel_section(title: str, items: list, corrected_label: str, note:
                                  "the next evaluation run. (The **gold** control set is never touched, so it "
                                  "stays comparable.) Scroll down to review the next one.")
                     st.rerun()   # re-render THIS card as done; queue + position preserved (no rescan)
-            if col2.button("↩ Keep as is (model was right)", key=f"keep_{pid}"):
+            if col2.button("↩ Keep as is (model was right)", key=f"keep_{key_prefix}_{pid}"):
                 mark_reviewed_ok(DB_PATH, pid, c["has_claim"])
                 done[pid] = "↩ Kept as is — marked reviewed, nothing changed. Scroll down to the next one."
                 st.rerun()
@@ -828,12 +838,14 @@ def maintenance():
     _render_relabel_section(
         "🟠 Opinions that look like CLAIMS", cands["opinion_to_claim"], "claim",
         "Classified OPINION but evidence contradicts it (news covers it / official / credibly cited) — "
-        "likely missed claims (the costly false negatives).")
+        "likely missed claims (the costly false negatives).",
+        key_prefix="eng_o2c")
     st.divider()
     _render_relabel_section(
         "🔵 Claims with no supporting evidence", cands["claim_to_opinion"], "opinion",
         "Classified CLAIM but nothing corroborates it. **Lower confidence** — the headline-only corpus "
-        "means real claims often lack a match, so review carefully.")
+        "means real claims often lack a match, so review carefully.",
+        key_prefix="eng_c2o")
 
     # ── Lane 2: signal-ranked, any reach (benchmark growth) ──────────────────────────────────
     # The queue above ranks by ENGAGEMENT, which is right for the red-flag product but wrong for
@@ -858,13 +870,15 @@ def maintenance():
             "🟢 Strong signal — an outlet posting its own story", sc["strong"], "claim",
             "Classified OPINION, but the post text IS the headline of the credible article it links, "
             "or it comes from an official account — that's reporting, not commentary. The highest-value "
-            "missed claims, at ANY reach.")
+            "missed claims, at ANY reach.",
+            key_prefix="sig_strong")
         st.divider()
         _render_relabel_section(
             "🟡 Weak signal — links a credible source", sc["weak"], "claim",
             "Classified OPINION and it cites a credible source. **Noisy on purpose:** sharing an article "
             "with a vibes caption is legitimately an OPINION, so many of these are the model being RIGHT. "
-            "A backlog to mine, not a queue to clear.")
+            "A backlog to mine, not a queue to clear.",
+            key_prefix="sig_weak")
 
     st.divider()
     # Relabeling is what grows the benchmark, so this is where the admin most needs to see that a
