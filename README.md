@@ -559,8 +559,85 @@ next steps (dynamic eval-set growth + retrieval-quality evaluation).
 
 ### Day-to-day workflow
 
-1. **Local daily ingestion** runs autonomously (scheduler or Task Scheduler `--once`) — no action needed.
-2. **2–3×/week**, run [`notebooks/colab_daily_maintenance.ipynb`](notebooks/colab_daily_maintenance.ipynb)
-   on Colab (GPU): classify + vision + evaluate, then it exports results to Drive.
-3. **Pull the exported `data/` back into the project**; the app serves the fresh data. Check the
-   sidebar health chips and the Evaluation drift charts.
+Work splits across two machines: **local CPU** owns ingestion and the app, **Colab GPU** owns
+classify/vision/evaluate. They exchange files through Drive and GitHub, and every rule below exists
+because one of those exchanges destroyed something.
+
+> **The two rules.**
+> 1. **`git push` before every Colab run.** Colab *clones from GitHub* — anything uncommitted or
+>    unpushed is invisible to it, and its export then overwrites your local `data/`.
+> 2. **Never copy `chroma_evidence/` back from Drive.** It is derived state. Rebuild it locally.
+
+#### 1. Local ingestion — daily, CPU only
+
+```powershell
+uv run python -m climate_verifier.ingestion.scheduler --once --force
+```
+
+Takes 1–2h; it is I/O-bound, so the GPU buys nothing and Colab's shared IP gets GDELT-throttled
+harder. Posts are committed as they go but completion is stamped only at the very end, so a run that
+dies partway leaves fresh data with a stale "last completed cycle" — the app's banner reports both
+facts separately for exactly that reason.
+
+#### 2. Relabel — whenever, in the app
+
+```powershell
+uv run streamlit run app.py
+```
+
+Restart Streamlit if any module changed; edits to imported modules do not hot-reload.
+
+**You do not commit per relabel.** Clicking Relabel writes the judgment to
+`data/admin_overrides.jsonl` immediately, so a crash cannot lose it. Commit once at the end of a
+session, **both files together** — they are one decision in two stores, and splitting them is what
+previously left users seeing stale labels:
+
+```powershell
+git add data/claim_eval.csv data/admin_overrides.jsonl
+git commit -m "Commit N relabels"
+```
+
+#### 3. Before the Colab run
+
+```powershell
+git push
+```
+
+Then upload to `<DRIVE>/ClimateScanner/`. Each of these is a file Colab's export will otherwise
+**overwrite with a stale copy**:
+
+| upload | if you skip it |
+|---|---|
+| `data/ingested.db` | Colab classifies a stale corpus, and its export replaces yours |
+| `data/eval_history.jsonl` | the export destroys your drift history (it is append-only and un-recomputable) |
+| `data/health.json` | the export wipes the local ingestion heartbeat |
+
+#### 4. Colab — `notebooks/colab_daily_maintenance.ipynb`
+
+Cell 8 (install; `zstd` **before** Ollama) → cell 10 (pull from Drive) → cell 12 (`maintenance --all`)
+→ cells 15–17 (image eval). Cells 16–17 need cell 12's reindex **in the same session**, or
+`news_status` scores against an empty index.
+
+`maintenance` replays `admin_overrides.jsonl` onto the DB before anything else, so the DB you
+download already carries your overrides — **provided you pushed them in step 3.**
+
+#### 5. Pull the results back
+
+Copy from Drive into `data/`: `ingested.db`, `eval_history.jsonl`, `health.json`.
+**Not `chroma_evidence/`.**
+
+#### 6. Rebuild and verify
+
+```powershell
+Remove-Item -Recurse -Force data\chroma_evidence
+uv run python -m climate_verifier.pipeline.evidence --build
+uv run python -m climate_verifier.pipeline.relabel --status
+```
+
+Deleting before `--build` is required: the index upserts, so rebuilding on top of a damaged segment
+keeps the damage. `--status` should print `in sync ✅`; if it reports a label disagreement run
+`--apply`, and if it reports overrides **in the DB but not in the log**, one was written outside the
+log and will die on the next round-trip.
+
+Then check the sidebar health chips and the Evaluation drift charts. Read gold and dynamic against
+each other: **gold moved → model/env; only dynamic moved → concept drift; neither → stable.**
