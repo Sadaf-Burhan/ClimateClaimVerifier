@@ -65,6 +65,11 @@ NA_TERMS = {
     "midwest", "southeast", "gulf coast", "east coast", "west coast",
     "pacific northwest", "great plains", "tornado alley", "dixie alley",
     "appalachian", "rocky mountains", "sierra nevada",
+    # "new england" MUST stay listed: FOREIGN_TERMS contains "england" and is matched as a
+    # substring, so a New England post would otherwise be read as foreign and discarded. NA hits
+    # take priority over foreign ones, so listing it here is what protects it. Same reason
+    # "indiana"/"ontario"/"texas" protect posts that also name india / London,ON / Paris,TX.
+    "new england",
     # Canadian provinces / regions
     "alberta", "british columbia", "ontario", "quebec", "manitoba",
     "saskatchewan", "nova scotia", "new brunswick", "newfoundland",
@@ -79,14 +84,33 @@ NA_TERMS = {
 
 # ── Foreign Geography Signals ─────────────────────────────────────────────────
 # If a post contains ONLY these and no NA_TERMS, it is likely not NA-relevant.
-
+#
+# The UK/Europe block was MISSING until 2026-07-15, and it mattered: a post like "Most UK media
+# reports on June heatwave..." hit neither list, so it fell through to the "no geography → keep"
+# fallback and was ingested as a *general climate discussion*. 284 of 2842 Bluesky posts leaked in
+# that way — every single UK/EU post in the corpus. They then surfaced in the relabel queue and got
+# hand-labeled CLAIM, putting out-of-scope rows into the benchmark that the NA-scoped classifier is
+# graded against (it correctly answers "not a NA claim" and is scored as a false negative for it).
 FOREIGN_TERMS = {
     "china", "india", "pakistan", "bangladesh", "russia", "europe",
     "australia", "new zealand", "africa", "brazil", "amazon",
     "philippines", "indonesia", "vietnam", "taiwan", "japan", "korea",
     "middle east", "iran", "saudi arabia", "ukraine", "mediterranean",
     "siberia", "himalayas",
+    # UK / Ireland
+    "united kingdom", "britain", "british", "england", "scotland", "scottish",
+    "wales", "welsh", "london", "luton", "manchester", "yorkshire", "cornwall",
+    "ireland", "irish",
+    # Europe (beyond the bare "europe" above)
+    "germany", "german", "france", "french", "spain", "italy", "greece",
+    "portugal", "netherlands", "belgium", "poland", "norway", "sweden",
+    "denmark", "finland", "switzerland", "austria",
 }
+
+# Short abbreviations need WORD-BOUNDARY matching — the sets above are matched as plain substrings,
+# and a bare "uk" would fire inside "truck", "bucket", "Kentucky", "Milwaukee". "UK" is the single
+# most common foreign signal in this corpus, so it has to be caught, but only as a whole word.
+_FOREIGN_ABBREV_RE = re.compile(r"(?<!\w)(uk|u\.k\.)(?!\w)", re.I)
 
 
 def _normalise(text: str) -> str:
@@ -110,10 +134,10 @@ def is_na_relevant(text: str) -> bool:
     """
     t = _normalise(text)
     has_na      = any(term in t for term in NA_TERMS)
-    has_foreign = any(term in t for term in FOREIGN_TERMS)
+    has_foreign = any(term in t for term in FOREIGN_TERMS) or bool(_FOREIGN_ABBREV_RE.search(t))
 
     if has_na:
-        return True
+        return True          # NA wins over any foreign hit — protects "London, Ontario", "New England"
     if has_foreign:
         return False
     return True  # no geography mentioned — keep

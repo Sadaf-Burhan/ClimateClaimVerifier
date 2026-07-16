@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from climate_verifier.pipeline.evidence import assess_claim, extract_citations, is_official
+from climate_verifier.pipeline.topic_filter import is_na_relevant
 
 
 def _norm_words(s: str) -> str:
@@ -91,6 +92,8 @@ def get_relabel_candidates(store, db_path: str, cfg: dict, scan_limit: int = 100
     for r in rows:
         if r["admin_label"] is not None:          # already reviewed by the admin
             continue
+        if not is_na_relevant(r["text"] or ""):
+            continue                              # out of scope — see the note in get_signal_candidates
         a = assess_claim(store, r["text"], engagement=r["engagement"], source="bluesky",
                          followers=r["author_followers"] or 0, author=r["author"] or "",
                          domain="", cfg=cfg, external_url=r["external_url"] or "")
@@ -161,6 +164,14 @@ def get_signal_candidates(db_path: str, cfg: dict, store=None, limit: int = 60) 
     strong, weak = [], []
     for r in rows:
         text, url = r["text"] or "", r["external_url"] or ""
+        # SCOPE GATE. The system is North-America-scoped by design (README / project_description's
+        # "Scope Decision"), and both production classify prompts say so. Nominating an out-of-scope
+        # post invites a relabel to CLAIM — which is how 5 UK rows got into the benchmark, where the
+        # NA-scoped classifier correctly answers "not a NA claim" and is scored as a false negative
+        # for it. A UK headline IS a claim; it just isn't this system's claim. Cheap check, and it
+        # keeps the leak from re-entering via the queue while the leaked posts age out (14d retention).
+        if not is_na_relevant(text):
+            continue
         vdom = verbatim_headline_domain(text, r["external_title"], url, credible)
         cites = extract_citations(text + " " + url, credible)
         if vdom:
