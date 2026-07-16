@@ -640,10 +640,14 @@ def _render_relabel_section(title: str, items: list, corrected_label: str, note:
 
 
 def _render_static_eval():
-    """Static point-in-time evaluation: run the classifier on ONE of the two labeled sets and show
-    the confusion matrix, per-class metrics, and error breakdowns. Admin diagnostic — a local run is
-    slow; the canonical eval is the Colab GPU maintenance pass, which is what feeds the drift chart."""
-    st.subheader("📏 Static evaluation — hand-labeled set")
+    """Point-in-time evaluation: run the classifier on ONE of the two labeled sets and show the
+    confusion matrix, per-class metrics, and error breakdowns. Admin diagnostic — a local run is
+    slow; the canonical eval is the Colab GPU maintenance pass, which is what feeds the drift chart.
+
+    Deliberately NOT called "static" any more: neither set is static. Gold is *frozen* (the control)
+    and dynamic *grows* — "static" described the pre-split world where one CSV served both roles and
+    the relabel loop silently mutated the thing we called static."""
+    st.subheader("📏 Point-in-time evaluation — pick a benchmark")
     choice = st.radio(
         "Which eval set?", ["🥇 Gold (frozen control)", "📚 Dynamic (grows with relabels)"],
         horizontal=True, key="static_eval_set",
@@ -1066,13 +1070,14 @@ def classification_eval():
 
     st.divider()
 
-    # Dynamic evaluation — model drift over the GROWING hand-labeled benchmark (true concept drift).
-    st.subheader("📈 Model drift — dynamic evaluation over time")
+    # Drift over BOTH benchmarks. `_render_drift` draws its own header + per-set explanation, so
+    # this only frames the pair — describing one set here (as it used to) is what made the two
+    # "Model drift" headings read as contradictory.
     st.caption(
-        "How the classifier holds up on the **growing** hand-labeled benchmark — the true "
-        "**concept-drift** signal, not just a regression guard. Each point is a Colab GPU evaluation "
-        "run; the benchmark grows as the admin relabels hard cases (🔧 Maintenance), so a sustained "
-        f"move here reflects real drift. Target: **recall on CLAIM ≥ {CLAIM_RECALL_TARGET:.0%}**. "
+        "Every Colab GPU evaluation scores **both** benchmarks and plots each as its own series. "
+        "**🥇 Gold** is frozen, so it isolates the **model/environment**; **📚 Dynamic** grows as you "
+        "relabel hard cases (🔧 Maintenance), so it measures **concept drift**. You need both: one "
+        f"number can't tell them apart. Target: **recall on CLAIM ≥ {CLAIM_RECALL_TARGET:.0%}**. "
         "The point-in-time run (confusion matrix, breakdowns) lives in **🔧 Maintenance**."
     )
     _render_eval_freshness()   # are these numbers even measured on the current benchmark?
