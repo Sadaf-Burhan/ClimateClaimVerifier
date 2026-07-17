@@ -175,7 +175,7 @@ def _render_health_sidebar():
     if not health:
         st.sidebar.caption("No runs recorded yet.")
         return
-    for stage in ("ingestion", "classification", "evaluation", "vision", "refresh"):
+    for stage in ("ingestion", "classification", "evaluation"):
         rec = health.get(stage)
         if not rec:
             continue
@@ -1116,11 +1116,34 @@ def embedding_analysis():
 
     # ── Section A: Interactive similarity checker ──────────────────────────────
     st.markdown("### A · Interactive Similarity Checker")
-    st.caption("Enter two texts and see their cosine similarity. Similar climate posts should score > 0.6.")
+    st.caption("Enter two texts and see their cosine similarity. Similar climate posts should score > 0.6, "
+               "unrelated ones < 0.4. Pick a validated example to see clean separation, or type your own.")
+
+    # Examples drawn from the labeled pair set (Section B), so each scores where the demo expects —
+    # a same-event restatement lands ~0.8, a fact vs. a feeling ~0.1. Typing free text can land
+    # anywhere; these show the model working at its clearest.
+    _EMBED_EXAMPLES = {
+        "Same event, reworded (expect ~0.8)": (
+            "Arctic sea ice hits record low in February",
+            "February Arctic ice extent smallest ever recorded"),
+        "Same warning, different outlet (expect ~0.8)": (
+            "Environment Canada issues heat warning for Ontario",
+            "Heat alert issued by weather service for southern Ontario regions"),
+        "A fact vs. a feeling (expect ~0.1)": (
+            "Arctic sea ice extent hits record low",
+            "This heatwave is making me so uncomfortable"),
+        "Two different events (expect ~0.1)": (
+            "CO2 levels reach record high this year",
+            "Tornado warning issued for Winnipeg area"),
+    }
+    ex = st.selectbox("Load a validated example pair:", ["— type my own —"] + list(_EMBED_EXAMPLES))
+    ex_a, ex_b = _EMBED_EXAMPLES.get(ex, ("", ""))
 
     col_left, col_right = st.columns(2)
-    text_a = col_left.text_area("Text A", placeholder="e.g. Heat dome breaks BC temperature record", height=100)
-    text_b = col_right.text_area("Text B", placeholder="e.g. Record heatwave scorches Pacific Northwest", height=100)
+    text_a = col_left.text_area("Text A", value=ex_a, height=100,
+                                placeholder="e.g. Heat dome breaks BC temperature record")
+    text_b = col_right.text_area("Text B", value=ex_b, height=100,
+                                 placeholder="e.g. Record heatwave scorches Pacific Northwest")
 
     if st.button("Compare", type="primary"):
         if text_a.strip() and text_b.strip():
@@ -1346,11 +1369,27 @@ def evidence_matching():
 
     st.divider()
     st.markdown("### Assess a claim")
+
+    # Each example exercises a DIFFERENT reader-signal path, so the demo shows not just the red flag
+    # but the suppressors — why a genuine post that also lacks news corroboration is NOT flagged.
+    _RAG_EXAMPLES = {
+        "🚩 Viral conspiracy — the misinformation red flag": (
+            "HAARP technology is causing the Alberta floods", 200, ""),
+        "✓ Official source — a legitimate warning, not flagged": (
+            "Extreme heat warning in effect for southern Ontario through Thursday", 200, "weather.gc.ca"),
+        "✓ Self-cites a credible source — not flagged": (
+            "Arctic is warming four times faster than the global average, according to "
+            "https://www.theguardian.com/environment/arctic", 200, ""),
+    }
+    rex = st.selectbox("Load an example (each shows a different signal path):",
+                       ["— type my own —"] + list(_RAG_EXAMPLES))
+    _rc, _re, _ra = _RAG_EXAMPLES.get(rex, ("", 0, ""))
+
     claim_text = st.text_area("Claim text (include any link the post cites, e.g. a study URL)",
-                              placeholder="e.g. HAARP technology is causing the Alberta floods", height=80)
+                              value=_rc, placeholder="e.g. HAARP technology is causing the Alberta floods", height=80)
     ec1, ec2 = st.columns(2)
-    eng = ec1.number_input("Reach (engagement = likes + reposts + replies + quotes)", min_value=0, value=0, step=10)
-    author = ec2.text_input("Author handle (optional — e.g. nws.noaa.gov to test official sources)", value="")
+    eng = ec1.number_input("Reach (engagement = likes + reposts + replies + quotes)", min_value=0, value=_re, step=10)
+    author = ec2.text_input("Author handle (optional — e.g. weather.gc.ca to test official sources)", value=_ra)
     if st.button("Assess against news evidence", type="primary"):
         if not claim_text.strip():
             st.warning("Enter a claim.")
