@@ -1246,6 +1246,15 @@ def base_vs_adapter():
         f"base `{MODEL}` (recall-first). The adapter is the Week-5 precision experiment — "
         "kept here only to make the precision/recall tradeoff visible on real inputs."
     )
+    st.info(
+        "**Why the adapter is NOT shipped.** The QLoRA adapter was trained to raise **precision**, "
+        "and it does — but on the eval it could not hold **recall ≥ 0.90 and precision ≥ 0.85 at the "
+        "same time**: every gain in precision came back out of recall. In this system a missed claim "
+        "(false negative) is discarded forever, while a false positive just surfaces on the dashboard "
+        "for the reader to discount — so the costly error is the one the adapter makes *more* of. The "
+        "tradeoff is unbreakable at that target corner, so the project ships the **base** model "
+        "(recall-first) and keeps the adapter here only as evidence of the experiment."
+    )
 
     with st.expander("What differs between the two calls?"):
         st.markdown(
@@ -1343,13 +1352,22 @@ could not hold recall ≥ 0.90 **and** precision ≥ 0.85 together, so it is not
 def evidence_matching():
     st.subheader("🔎 Evidence Matching (RAG)")
     st.caption(
-        "Stage 4: for a classified **claim**, retrieve the nearest **GDELT news** articles "
-        "(ChromaDB · all-MiniLM-L6-v2), then an LLM re-rank judges whether any article describes "
-        "the *same specific event* — a **corroboration** signal, not a truth verdict. Combined with "
+        "Stage 4: for a classified **claim**, retrieve the nearest **GDELT news** with "
+        "**region-aware dense retrieval** (ChromaDB · all-MiniLM-L6-v2 — the claim's location is "
+        "embedded into the query so same-region news ranks higher). The verdict comes from retrieval "
+        "**proximity alone**: a strong topical/regional match is **PARTIAL** — *open the source to "
+        "confirm the specific event* — and never *corroborated*, because topic similarity is not "
+        "event-level confirmation. A **corroboration** signal, not a truth verdict. Combined with "
         "reach (engagement) it surfaces the **reach-vs-support mismatch**: a claim spreading widely "
-        "with no news backing from an unverified source is the misinformation red flag. The flag is "
-        "**not** raised for **official sources** (legitimate warnings/forecasts) or posts that "
-        "**self-cite a credible source** — those are real reasons a genuine post lacks news corroboration."
+        "with no news backing from an unverified source is the misinformation red flag — **not** "
+        "raised for **official sources** (legitimate warnings/forecasts) or posts that **self-cite a "
+        "credible source**, both real reasons a genuine post lacks news corroboration."
+    )
+    st.caption(
+        "ℹ️ There is **no LLM re-rank** in the shipped pipeline. An optional re-read that would confirm "
+        "the *same specific event* exists behind `use_llm_rerank` but ships **off** — region-aware "
+        "retrieval carries the match, so the verdict tops out at PARTIAL by design rather than claiming "
+        "an event match the retrieval can't prove. It's documented as an agentic-retrieval extension."
     )
 
     @st.cache_resource
