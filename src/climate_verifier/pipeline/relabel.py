@@ -79,6 +79,66 @@ def verbatim_headline_domain(text: str, external_title: str, external_url: str,
     return dom if any(dom == d or dom.endswith("." + d) for d in credible_domains) else ""
 
 
+# An opinion section republishing its own headline is NOT reporting — "Carbon capture is vital…"
+# from the Guardian's Letters page is a verbatim credible headline AND an opinion. These patterns
+# catch the common opinion sections so the provenance override skips them (they stay the
+# classifier's / a human's call). Measured: this is exactly the case where a blunt "verbatim ->
+# claim" rule would manufacture a false positive.
+_OPED_TITLE_RE = re.compile(r"\|\s*(letters?|opinion|comment is free|comment|editorial|analysis|voices)\s*$", re.I)
+_OPED_URL_RE = re.compile(r"/(commentisfree|opinion|editorial|letters?|voices|analysis|comment)(/|$)", re.I)
+
+
+def is_oped(external_title: str, external_url: str) -> bool:
+    """True if the linked article is an opinion-section piece (Letters / Comment is free / Opinion /
+    Editorial / Analysis / Voices) — detected from the title suffix or the URL path."""
+    return bool(_OPED_TITLE_RE.search(external_title or "") or _OPED_URL_RE.search(external_url or ""))
+
+
+def provenance_override(text: str, external_title: str, external_url: str,
+                        credible_domains: list[str]) -> bool:
+    """The deterministic provenance rule: a post whose text IS the verbatim headline of its linked
+    CREDIBLE, NON-opinion article is a CLAIM — a news outlet reporting its own story.
+
+    Why deterministic and downstream, NOT a classifier-prompt rule: measured head-to-head, adding a
+    headline rule to the prompt perturbed ~25 unrelated classifications and dropped the frozen gold
+    recall, because a 3B model is globally sensitive to prompt edits. This rule fires ONLY on the
+    handful of verbatim-headline rows and never touches the prompt, so every other post — and all of
+    gold — is byte-identical. The op-ed guard is what keeps it from flipping Letters/Comment pages."""
+    if is_oped(external_title, external_url):
+        return False
+    return bool(verbatim_headline_domain(text, external_title, external_url, credible_domains))
+
+
+def apply_provenance_labels(db_path: str, cfg: dict) -> dict:
+    """Product path: stamp the provenance override onto the DB so the dashboard shows CLAIM, the
+    gate stops discarding these posts, and the signal sweep stops nominating them for hand-relabel.
+
+    Overwrites the classifier's `has_claim` (recording why in `reason`) ONLY for Bluesky posts the
+    override fires on that a human has NOT already judged (`admin_label IS NULL` — human disposes
+    over everything). Idempotent. The eval is unaffected: it reads the frozen CSV and applies the
+    same rule itself, so this DB stamp and the eval never diverge. Returns {overridden}."""
+    credible = cfg.get("evidence", {}).get("citation_domains", [])
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    ensure_admin_columns(con)
+    rows = con.execute("""
+        SELECT p.post_id, p.text, p.external_title, p.external_url
+        FROM posts p JOIN classifications c ON p.post_id = c.post_id
+        WHERE p.source = 'bluesky' AND c.admin_label IS NULL AND c.has_claim = 0
+              AND p.external_title IS NOT NULL AND p.external_title != ''
+    """).fetchall()
+    n = 0
+    for r in rows:
+        if provenance_override(r["text"], r["external_title"], r["external_url"] or "", credible):
+            con.execute(
+                "UPDATE classifications SET has_claim = 1, reason = ? WHERE post_id = ?",
+                (f"provenance override: verbatim headline of the linked credible article", r["post_id"]))
+            n += 1
+    con.commit()
+    con.close()
+    return {"overridden": n}
+
+
 def ensure_admin_columns(conn: sqlite3.Connection) -> None:
     """Add the admin-override columns to `classifications` (idempotent)."""
     have = {r[1] for r in conn.execute("PRAGMA table_info(classifications)")}
@@ -326,24 +386,44 @@ def eval_post_types(csv_path: str) -> list[str]:
     return sorted(seen)
 
 
+EVAL_FIELDS = ["post_text", "expected_label", "keyword_category", "post_type", "notes",
+               "external_title", "external_url"]
+
+
 def append_to_eval_csv(csv_path: str, post_text: str, expected_label: str, keyword_category: str = "",
-                       post_type: str = "", notes: str = "") -> None:
-    """Append a corrected (post, label, thought) row to the eval benchmark. Matches the header:
-    post_text, expected_label, keyword_category, post_type, notes."""
+                       post_type: str = "", notes: str = "",
+                       external_title: str = "", external_url: str = "") -> None:
+    """Append a corrected row to the eval benchmark. `external_title`/`external_url` are the linked
+    article's provenance — frozen INTO the row so the eval's verbatim-headline override is
+    reproducible and never has to re-read the live DB (a post aging out must not change the score)."""
     p = Path(csv_path)
     text = " ".join((post_text or "").split())          # flatten newlines for a clean CSV cell
     with open(p, "a", newline="", encoding="utf-8") as f:
         csv.writer(f).writerow([text, expected_label, keyword_category,
                                 (post_type or "real_data").strip(),
-                                (notes or "admin-confirmed relabel").strip()])
+                                (notes or "admin-confirmed relabel").strip(),
+                                " ".join((external_title or "").split()),
+                                (external_url or "").strip()])
 
 
 def apply_relabel(db_path: str, csv_path: str, post_id: str, post_text: str, corrected_label: str,
                   keyword_category: str = "", post_type: str = "", notes: str = "") -> None:
     """Confirm a relabel: BOTH writes — the admin override (users see it) and the eval-CSV append
-    with the admin-chosen `post_type` (thought) + `notes`."""
+    with the admin-chosen `post_type` (thought) + `notes`. The linked article's title/url are
+    captured from the DB and frozen into the eval row so the provenance override stays reproducible."""
     set_admin_label(db_path, post_id, 1 if corrected_label == "claim" else 0)
-    append_to_eval_csv(csv_path, post_text, corrected_label, keyword_category, post_type, notes)
+    ext_title = ext_url = ""
+    try:
+        con = sqlite3.connect(db_path)
+        row = con.execute("SELECT external_title, external_url FROM posts WHERE post_id = ?",
+                          (post_id,)).fetchone()
+        con.close()
+        if row:
+            ext_title, ext_url = row[0] or "", row[1] or ""
+    except Exception:
+        pass
+    append_to_eval_csv(csv_path, post_text, corrected_label, keyword_category, post_type, notes,
+                       external_title=ext_title, external_url=ext_url)
 
 
 def mark_reviewed_ok(db_path: str, post_id: str, model_label: int) -> None:

@@ -30,7 +30,7 @@ from climate_verifier.pipeline.evaluate import (
     run_eval, compute_metrics, snapshot_metrics, format_report,
 )
 from climate_verifier.pipeline import vision
-from climate_verifier.pipeline.relabel import apply_overrides, ADMIN_OVERRIDES_PATH
+from climate_verifier.pipeline.relabel import apply_overrides, apply_provenance_labels, ADMIN_OVERRIDES_PATH
 from climate_verifier.health import update_health
 
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
@@ -98,6 +98,7 @@ def run_evaluation(cfg: dict) -> dict:
     target = float(ev.get("claim_recall_target", 0.90))
     model = cfg["model"]["name"]
     lbs = cfg["model"].get("llm_batch_size", LLM_BATCH_SIZE)
+    credible = cfg.get("evidence", {}).get("citation_domains", [])   # for the provenance override
     sets = [("gold", ev.get("gold_eval_csv", "data/claim_eval_gold.csv")),
             ("dynamic", ev.get("claim_eval_csv", "data/claim_eval.csv"))]
     try:
@@ -107,7 +108,7 @@ def run_evaluation(cfg: dict) -> dict:
                 print(f"[evaluate] {name}: {csv_path} not found — skipping.")
                 continue
             print(f"[evaluate] {name} set — {model} on {csv_path} …")
-            results = run_eval(csv_path, model=model, llm_batch_size=lbs)
+            results = run_eval(csv_path, model=model, llm_batch_size=lbs, credible_domains=credible)
             metrics = compute_metrics(results, claim_recall_target=target)
             print(format_report(metrics))
             rec = snapshot_metrics(metrics, model=model, eval_set=name)
@@ -184,6 +185,16 @@ def main():
             # the health file already recorded the failure for the app banner.
             print(f"[{name}] FAILED: {type(e).__name__}: {e}")
             failures.append(name)
+
+    # Provenance override — runs AFTER classify (needs has_claim populated) and before we finish, so
+    # the exported DB shows verbatim-headline posts as CLAIM (dashboard/gate/sweep). The eval already
+    # applies the same rule itself, so this only touches the product side.
+    try:
+        pv = apply_provenance_labels(cfg["storage"]["db_path"], cfg)
+        if pv["overridden"]:
+            print(f"[provenance] {pv['overridden']} verbatim-headline post(s) set to CLAIM in the DB")
+    except Exception as e:
+        print(f"[provenance] FAILED: {type(e).__name__}: {e}")
 
     if failures:
         print(f"\nMaintenance finished with failures in: {', '.join(failures)}")

@@ -43,11 +43,24 @@ def load_eval_set(csv_path: str) -> list[dict]:
 
 
 def run_eval(csv_path: str, model: str,
-             llm_batch_size: int = LLM_BATCH_SIZE) -> list[dict]:
+             llm_batch_size: int = LLM_BATCH_SIZE,
+             credible_domains: list[str] | None = None) -> list[dict]:
     """
     Classifies every post in the eval set and attaches the prediction.
     Returns one dict per post: the CSV row plus predicted_label, reason, correct.
-    """
+
+    When `credible_domains` is given, the same PROVENANCE OVERRIDE the product applies runs here:
+    a row whose text is the verbatim headline of its linked credible (non-opinion) article is scored
+    as CLAIM regardless of the classifier, using the row's frozen `external_title`/`external_url`.
+    This makes the eval measure the PIPELINE (classifier + override), so a verbatim headline the
+    classifier misses stops counting as a false negative. Rows without those columns (e.g. all of
+    gold) are unaffected — the override simply never fires, so the frozen control does not move.
+    Omit `credible_domains` to score the bare classifier."""
+    override = None
+    if credible_domains:
+        from .relabel import provenance_override            # lazy: pulls in the heavy evidence deps
+        override = lambda r: provenance_override(r.get("post_text", ""), r.get("external_title", ""),
+                                                 r.get("external_url", ""), credible_domains)
     rows = load_eval_set(csv_path)
     results = []
     for start in range(0, len(rows), llm_batch_size):
@@ -55,10 +68,14 @@ def run_eval(csv_path: str, model: str,
         predictions = classify_batch([r["post_text"] for r in chunk], model=model)
         for row, pred in zip(chunk, predictions):
             predicted = "claim" if pred["has_claim"] else "opinion"
+            reason = pred["reason"]
+            if predicted == "opinion" and override and override(row):
+                predicted = "claim"                         # provenance override: verbatim credible headline
+                reason = "provenance override: verbatim headline of the linked credible article"
             results.append({
                 **row,
                 "predicted_label": predicted,
-                "reason": pred["reason"],
+                "reason": reason,
                 "correct": predicted == row["expected_label"],
             })
     return results
@@ -333,9 +350,10 @@ def main():
     args = parser.parse_args()
     model = args.model
 
+    credible = cfg.get("evidence", {}).get("citation_domains", [])
     rows = load_eval_set(csv_path)
     print(f"Evaluating {model} on {len(rows)} labeled posts from {csv_path} ...")
-    results = run_eval(csv_path, model=model, llm_batch_size=llm_batch_size)
+    results = run_eval(csv_path, model=model, llm_batch_size=llm_batch_size, credible_domains=credible)
     metrics = compute_metrics(results, claim_recall_target=target)
     print(format_report(metrics))
     if args.snapshot:
