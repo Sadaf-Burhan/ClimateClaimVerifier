@@ -1,76 +1,76 @@
-post_text,expected_label,keyword_category,post_type,notes
-Heat dome breaks 1947 temperature record in Lytton BC,claim,extreme_events,news_event,Named location + specific measurement + historical comparison
-NOAA confirms strongest Atlantic hurricane season since 2005,claim,extreme_events,official_alert,Official source + specific verifiable comparison
-Atmospheric river expected to dump 200mm on Vancouver Island,claim,scientific,news_event,Specific measurement + named location
-Arctic sea ice extent hits record low for February,claim,scientific,scientific_finding,Specific superlative + named time period
-CO2 levels reached 422 ppm according to NOAA measurements,claim,scientific,scientific_finding,Specific measurement + attributed official source
-Greenland ice sheet lost record mass in July 2023 study shows,claim,scientific,scientific_finding,Specific finding with named location and date
-Canada recorded its hottest June ever in 2024,claim,scientific,news_event,Specific superlative with named location and year
-Sea levels rising faster than scientists predicted new data shows,claim,scientific,scientific_finding,Specific finding with verifiable comparison claim
-NWS issues flash flood emergency for the Las Vegas metro area tonight,claim,extreme_events,official_alert,Official warning + named area + timeframe
-Yellowknife orders evacuation of all 20000 residents as wildfire approaches,claim,extreme_events,official_alert,Official order + population figure + named city
-FEMA approves disaster assistance for New Mexico wildfire victims,claim,extreme_events,official_alert,Named agency action + named location
-NOAA forecasts above normal Atlantic hurricane season with 17 named storms,claim,scientific,official_alert,Official forecast + specific figure
-Hurricane Milton makes landfall near Sarasota as a Category 3 storm,claim,extreme_events,news_event,Named storm + landfall location + intensity
-Phoenix records 31 consecutive days above 110F breaking the 1974 record,claim,extreme_events,news_event,Specific streak + measurement + historical comparison
-Canada's 2023 wildfire season burned 18.5 million hectares a national record,claim,extreme_events,news_event,Specific figure + year + verifiable record
-Texas power grid sets all time demand record during heat wave ERCOT says,claim,extreme_events,news_event,Attributed record + named grid operator
-Nature study finds Atlantic circulation has weakened 15 percent since 1950,claim,scientific,scientific_finding,Attributed study + quantified finding
-Antarctic ozone hole reached 26 million square km in September NASA says,claim,scientific,scientific_finding,Specific measurement + attributed source
-HAARP technology is being used to cause the flooding in Alberta,claim,conspiracy,false_but_checkable,Specific mechanism + effect + location - structurally a claim even if false
-Higher CO2 makes the planet greener and benefits agriculture,claim,scientific,false_but_checkable,Specific gas + mechanism + effect - checkable even if contested
-The government sprayed chemtrails over Texas before the February freeze,claim,conspiracy,false_but_checkable,Actor + action + location + named event - checkable even if false
-Cloud seeding by Alberta companies triggered last week's Calgary hailstorm,claim,conspiracy,false_but_checkable,Named actor + mechanism + named event - checkable even if false
-Geoengineering program blocked sunlight over Montana all month farmers report,claim,combinations,false_but_checkable,Specific effect + location + timeframe + attribution - claim even if false
-Global temperatures have not risen since 2016 according to satellite data,claim,conspiracy,denial_with_stat,Checkable assertion with claimed data source - claim even if false
-Wake up people the experts said the Arctic would be ice free by 2013 yet it still has 4 million square km of ice,claim,conspiracy,denial_with_stat,Hostile rant tone but contains checkable prediction + measurement
-Honestly terrified right now Environment Canada just issued a tornado warning for Ottawa,claim,extreme_events,mixed_emotion_fact,Emotional framing wrapped around an official warning + location
-I hate this so much Toronto's air quality index hit 400 today,claim,extreme_events,mixed_emotion_fact,Personal reaction wrapped around a specific measurement
-This weather is absolutely insane right now!!,opinion,extreme_events,emotional_reaction,Emotional reaction with no verifiable factual content
-I cant believe how hot it is today stay safe everyone,opinion,extreme_events,emotional_reaction,Personal reaction with no verifiable claims
-My garden is dying in this heat third summer in a row,opinion,extreme_events,emotional_reaction,Personal anecdote not independently verifiable
-Smoke so thick today I cant see the end of my street,opinion,extreme_events,emotional_reaction,Personal observation with no official or measured content
-Watching the news about the fires and just feeling completely numb,opinion,sensationalist,emotional_reaction,Emotional reaction with no checkable content
-Climate change is just a government excuse to control us,opinion,conspiracy,political_viewpoint,Political opinion with no specific verifiable claim
-Climate change is a hoax invented to raise your taxes,opinion,conspiracy,political_viewpoint,General viewpoint with no specific checkable assertion
-Net zero is a scam designed to make the elites richer,opinion,conspiracy,political_viewpoint,Political viewpoint with no verifiable assertion
-The weather has always changed people need to calm down,opinion,conspiracy,political_viewpoint,Vague generalization with nothing specific to verify
-Carbon capture feels like a distraction from real solutions,opinion,scientific,political_viewpoint,Policy viewpoint with no verifiable assertion
-We are all going to die from heat by 2050,opinion,sensationalist,hyperbole_doom,Hyperbolic prediction without sourcing or evidence
-The ocean is literally boiling we are finished as a species,opinion,sensationalist,hyperbole_doom,Hyperbole with no measurable assertion
-Nobody is ready for what is coming this summer,opinion,sensationalist,hyperbole_doom,Vague foreboding with nothing checkable
-Mark my words entire cities will be underwater very soon,opinion,sensationalist,hyperbole_doom,Unspecific prediction with no location source or timeframe
-If you are not panicking about the climate you are not paying attention,opinion,sensationalist,hyperbole_doom,Exhortation with no factual content
-Scientists are hiding the real data about ice sheet collapse,opinion,conspiracy,vague_conspiracy,Conspiracy claim without specific verifiable evidence
-Geoengineering is secretly controlling our weather PROOF inside,opinion,conspiracy,vague_conspiracy,Misleading claim without specific verifiable evidence
-The climate lockdowns are coming wake up people,opinion,conspiracy,vague_conspiracy,Conspiracy opinion with no verifiable claim
-Weather manipulation is real and they do not want you to know,opinion,conspiracy,vague_conspiracy,Conspiracy framing with no specific verifiable claim
-They are hiding the truth about Antarctica wake up,opinion,combinations,vague_conspiracy,Vague conspiracy framing with no specific assertion
-Everything about the climate agenda is one big lie,opinion,combinations,vague_conspiracy,Blanket viewpoint with nothing checkable
-Pump that heat pump that heat summer anthem 2026 lets gooo,opinion,sensationalist,sarcasm_joke,Song parody with no checkable assertion
-Cant wait for my future beachfront property in Saskatchewan thanks climate change,opinion,sensationalist,sarcasm_joke,Sarcastic joke with no specific assertion
-Mother Nature really said choose violence this week huh,opinion,extreme_events,sarcasm_joke,Joke personification with no verifiable content
-BREAKING my air conditioner has filed for workers compensation,opinion,sensationalist,sarcasm_joke,Joke framed as breaking news with no factual assertion
-Forecast for tomorrow hot with a chance of existential dread,opinion,sensationalist,sarcasm_joke,Humorous remark with no checkable content
-Is it just me or are storms getting way worse every year,opinion,extreme_events,rhetorical_question,Impression phrased as a question nothing asserted
-Why does nobody ever talk about geoengineering,opinion,conspiracy,rhetorical_question,Rhetorical question with no assertion
-What a buffoon. Staking claim to a country that isn’t his & whose people don’t want him there. Greenland is in the midst of a #climatechange crisis. If Vance wanted to do something helpful he would start a think tank & propose ways to mitigate an Arctic meltdown www.theguardian.com/us-news/2025...,opinion,scientific,real_data,The post expresses an opinion about a political figure's actions and makes claim
+post_text,expected_label,keyword_category,post_type,notes,external_title,external_url
+Heat dome breaks 1947 temperature record in Lytton BC,claim,extreme_events,news_event,Named location + specific measurement + historical comparison,,
+NOAA confirms strongest Atlantic hurricane season since 2005,claim,extreme_events,official_alert,Official source + specific verifiable comparison,,
+Atmospheric river expected to dump 200mm on Vancouver Island,claim,scientific,news_event,Specific measurement + named location,,
+Arctic sea ice extent hits record low for February,claim,scientific,scientific_finding,Specific superlative + named time period,,
+CO2 levels reached 422 ppm according to NOAA measurements,claim,scientific,scientific_finding,Specific measurement + attributed official source,,
+Greenland ice sheet lost record mass in July 2023 study shows,claim,scientific,scientific_finding,Specific finding with named location and date,,
+Canada recorded its hottest June ever in 2024,claim,scientific,news_event,Specific superlative with named location and year,,
+Sea levels rising faster than scientists predicted new data shows,claim,scientific,scientific_finding,Specific finding with verifiable comparison claim,,
+NWS issues flash flood emergency for the Las Vegas metro area tonight,claim,extreme_events,official_alert,Official warning + named area + timeframe,,
+Yellowknife orders evacuation of all 20000 residents as wildfire approaches,claim,extreme_events,official_alert,Official order + population figure + named city,,
+FEMA approves disaster assistance for New Mexico wildfire victims,claim,extreme_events,official_alert,Named agency action + named location,,
+NOAA forecasts above normal Atlantic hurricane season with 17 named storms,claim,scientific,official_alert,Official forecast + specific figure,,
+Hurricane Milton makes landfall near Sarasota as a Category 3 storm,claim,extreme_events,news_event,Named storm + landfall location + intensity,,
+Phoenix records 31 consecutive days above 110F breaking the 1974 record,claim,extreme_events,news_event,Specific streak + measurement + historical comparison,,
+Canada's 2023 wildfire season burned 18.5 million hectares a national record,claim,extreme_events,news_event,Specific figure + year + verifiable record,,
+Texas power grid sets all time demand record during heat wave ERCOT says,claim,extreme_events,news_event,Attributed record + named grid operator,,
+Nature study finds Atlantic circulation has weakened 15 percent since 1950,claim,scientific,scientific_finding,Attributed study + quantified finding,,
+Antarctic ozone hole reached 26 million square km in September NASA says,claim,scientific,scientific_finding,Specific measurement + attributed source,,
+HAARP technology is being used to cause the flooding in Alberta,claim,conspiracy,false_but_checkable,Specific mechanism + effect + location - structurally a claim even if false,,
+Higher CO2 makes the planet greener and benefits agriculture,claim,scientific,false_but_checkable,Specific gas + mechanism + effect - checkable even if contested,,
+The government sprayed chemtrails over Texas before the February freeze,claim,conspiracy,false_but_checkable,Actor + action + location + named event - checkable even if false,,
+Cloud seeding by Alberta companies triggered last week's Calgary hailstorm,claim,conspiracy,false_but_checkable,Named actor + mechanism + named event - checkable even if false,,
+Geoengineering program blocked sunlight over Montana all month farmers report,claim,combinations,false_but_checkable,Specific effect + location + timeframe + attribution - claim even if false,,
+Global temperatures have not risen since 2016 according to satellite data,claim,conspiracy,denial_with_stat,Checkable assertion with claimed data source - claim even if false,,
+Wake up people the experts said the Arctic would be ice free by 2013 yet it still has 4 million square km of ice,claim,conspiracy,denial_with_stat,Hostile rant tone but contains checkable prediction + measurement,,
+Honestly terrified right now Environment Canada just issued a tornado warning for Ottawa,claim,extreme_events,mixed_emotion_fact,Emotional framing wrapped around an official warning + location,,
+I hate this so much Toronto's air quality index hit 400 today,claim,extreme_events,mixed_emotion_fact,Personal reaction wrapped around a specific measurement,,
+This weather is absolutely insane right now!!,opinion,extreme_events,emotional_reaction,Emotional reaction with no verifiable factual content,,
+I cant believe how hot it is today stay safe everyone,opinion,extreme_events,emotional_reaction,Personal reaction with no verifiable claims,,
+My garden is dying in this heat third summer in a row,opinion,extreme_events,emotional_reaction,Personal anecdote not independently verifiable,,
+Smoke so thick today I cant see the end of my street,opinion,extreme_events,emotional_reaction,Personal observation with no official or measured content,,
+Watching the news about the fires and just feeling completely numb,opinion,sensationalist,emotional_reaction,Emotional reaction with no checkable content,,
+Climate change is just a government excuse to control us,opinion,conspiracy,political_viewpoint,Political opinion with no specific verifiable claim,,
+Climate change is a hoax invented to raise your taxes,opinion,conspiracy,political_viewpoint,General viewpoint with no specific checkable assertion,,
+Net zero is a scam designed to make the elites richer,opinion,conspiracy,political_viewpoint,Political viewpoint with no verifiable assertion,,
+The weather has always changed people need to calm down,opinion,conspiracy,political_viewpoint,Vague generalization with nothing specific to verify,,
+Carbon capture feels like a distraction from real solutions,opinion,scientific,political_viewpoint,Policy viewpoint with no verifiable assertion,,
+We are all going to die from heat by 2050,opinion,sensationalist,hyperbole_doom,Hyperbolic prediction without sourcing or evidence,,
+The ocean is literally boiling we are finished as a species,opinion,sensationalist,hyperbole_doom,Hyperbole with no measurable assertion,,
+Nobody is ready for what is coming this summer,opinion,sensationalist,hyperbole_doom,Vague foreboding with nothing checkable,,
+Mark my words entire cities will be underwater very soon,opinion,sensationalist,hyperbole_doom,Unspecific prediction with no location source or timeframe,,
+If you are not panicking about the climate you are not paying attention,opinion,sensationalist,hyperbole_doom,Exhortation with no factual content,,
+Scientists are hiding the real data about ice sheet collapse,opinion,conspiracy,vague_conspiracy,Conspiracy claim without specific verifiable evidence,,
+Geoengineering is secretly controlling our weather PROOF inside,opinion,conspiracy,vague_conspiracy,Misleading claim without specific verifiable evidence,,
+The climate lockdowns are coming wake up people,opinion,conspiracy,vague_conspiracy,Conspiracy opinion with no verifiable claim,,
+Weather manipulation is real and they do not want you to know,opinion,conspiracy,vague_conspiracy,Conspiracy framing with no specific verifiable claim,,
+They are hiding the truth about Antarctica wake up,opinion,combinations,vague_conspiracy,Vague conspiracy framing with no specific assertion,,
+Everything about the climate agenda is one big lie,opinion,combinations,vague_conspiracy,Blanket viewpoint with nothing checkable,,
+Pump that heat pump that heat summer anthem 2026 lets gooo,opinion,sensationalist,sarcasm_joke,Song parody with no checkable assertion,,
+Cant wait for my future beachfront property in Saskatchewan thanks climate change,opinion,sensationalist,sarcasm_joke,Sarcastic joke with no specific assertion,,
+Mother Nature really said choose violence this week huh,opinion,extreme_events,sarcasm_joke,Joke personification with no verifiable content,,
+BREAKING my air conditioner has filed for workers compensation,opinion,sensationalist,sarcasm_joke,Joke framed as breaking news with no factual assertion,,
+Forecast for tomorrow hot with a chance of existential dread,opinion,sensationalist,sarcasm_joke,Humorous remark with no checkable content,,
+Is it just me or are storms getting way worse every year,opinion,extreme_events,rhetorical_question,Impression phrased as a question nothing asserted,,
+Why does nobody ever talk about geoengineering,opinion,conspiracy,rhetorical_question,Rhetorical question with no assertion,,
+What a buffoon. Staking claim to a country that isn’t his & whose people don’t want him there. Greenland is in the midst of a #climatechange crisis. If Vance wanted to do something helpful he would start a think tank & propose ways to mitigate an Arctic meltdown www.theguardian.com/us-news/2025...,opinion,scientific,real_data,The post expresses an opinion about a political figure's actions and makes claim,,
 "People outside of IT circles have started saying it? Since that's my profession, I've been hearing some variant of it for years. I haven't encountered it elsewhere. 
 
-But then, look at things like ""polar vortex"" and ""bomb cyclone."" Hardly new terms, but the lay public suddenly discovered them.",opinion,scientific,real_data,The post expresses an opinion about how certain climate terminology is being use
-Agree. Yrs ago I posted on FB that I thought a great deal of the crazy was fueled by unacknowledged fear of climate change/crisis.,opinion,scientific,real_data,The post expresses an opinion and personal belief about the potential influence 
-Have you seen all the anti-climate change videos on FB? There are a few organizations who are getting a solid foothold with short form videos. We need scientists to produce counter points to their videos.,opinion,scientific,real_data,The post expresses an opinion about the effectiveness of certain video content a
-2026-06-05 20:51:47 - The Terra Park Energy Park received an $18.5 million grant from the U.S. Department of Energy for West Virginia power generation and carbon capture projects.,claim,scientific,real_data,claim citing the facts of fund assignment.
+But then, look at things like ""polar vortex"" and ""bomb cyclone."" Hardly new terms, but the lay public suddenly discovered them.",opinion,scientific,real_data,The post expresses an opinion about how certain climate terminology is being use,,
+Agree. Yrs ago I posted on FB that I thought a great deal of the crazy was fueled by unacknowledged fear of climate change/crisis.,opinion,scientific,real_data,The post expresses an opinion and personal belief about the potential influence ,,
+Have you seen all the anti-climate change videos on FB? There are a few organizations who are getting a solid foothold with short form videos. We need scientists to produce counter points to their videos.,opinion,scientific,real_data,The post expresses an opinion about the effectiveness of certain video content a,,
+2026-06-05 20:51:47 - The Terra Park Energy Park received an $18.5 million grant from the U.S. Department of Energy for West Virginia power generation and carbon capture projects.,claim,scientific,real_data,claim citing the facts of fund assignment.,,
 "AI is revolutionizing environmental health by enabling predictive modeling, causal analysis, pollution tracking, chemical safety assessment, carbon capture, waste management, and exposome research. But this review also highlights its limitations for responsible use.
 #Immunology #AI 
-🔗 ino.to/CJIbf8i",opinion,scientific,real_data,Opinion on AI's limitations
+🔗 ino.to/CJIbf8i",opinion,scientific,real_data,Opinion on AI's limitations,,
 "Here are 2 random ideas:
 
 1. Global warming promising harsher summers and winters all over the globe
 2. Data centers popping around, generating heat, using water and forcing the use of fossil fuels in record amounts to supply them
 
-Just 2 random ideas put side to side...",opinion,scientific,real_data,The post presents two hypothetical scenarios as 'ideas' without providing verifications.
-Can we convince them to keep them running for 2-3 more years to prove climate change is a hoax? Buy a little time?,opinion,scientific,real_data,The post expresses a political opinion and does not contain a verifiable factual
+Just 2 random ideas put side to side...",opinion,scientific,real_data,The post presents two hypothetical scenarios as 'ideas' without providing verifications.,,
+Can we convince them to keep them running for 2-3 more years to prove climate change is a hoax? Buy a little time?,opinion,scientific,real_data,The post expresses a political opinion and does not contain a verifiable factual,,
 "#NWS #flood #nwsflashflood #FlashFloodWarning Flash Flood Warning for Lancaster, NE; Saline, NE; Seward, NE #NEwx
 FFWOAX
 
@@ -79,47 +79,47 @@ The National Weather Service in Omaha/Valley has issued a
 * Flash Flood Warning for...
 Southwestern Lancaster County in southeastern Nebraska […] 
 
-[Original post on ai6yr.org]",claim,extreme_events,real_data,Opinion/general commentary
+[Original post on ai6yr.org]",claim,extreme_events,real_data,Opinion/general commentary,,
 "MKX updates Tornado Warning [tornado: RADAR INDICATED, hail: &lt;.75 IN] (cancels Sauk [WI], continues Columbia [WI]) till 10:30 PM CDT. At 1011 PM CDT, a severe thunderstorm capab... at Sat, 06 Jun 2026 03:12:12 +0000 via IEMbot
-Additional Details Here.",claim,extreme_events,real_data,"claim telling the exact date, time and location."
-"Farmers , Fishers Urged To Prepare For Hurricane Season",opinion,extreme_events,real_data,General commentary on hurricane season
-🌪️ TORNADO WARNING Marion & Warren Counties IA until 11:15p CDT. Extreme threat — seek shelter NOW. Track this event free at vortexwxpredictions.com while we work toward real markets. #SevereWx #TornadoWarning https://vortexwxpredictions.com,claim,extreme_events,real_data,claim telling about time and location with a followup link for more updates.
-Today at 3PM: Suzuki Session 3: Community Resilience to Escalating Climate Threats (Virtual). Emergency preparedness isn’t just about protecting our individual households. It’s about getting to know your neighbours and making a plan so no one is left behind. Hear about David Suzuki and Tara...,opinion,sensationalist,real_data,Climate emergency event scheduled
-"It affects all the worlds climate systems... it will have more energy to work with than the last one...It will Bring Floods and droughts and massive climate shifts...and many crops will be lessened or fail all together...2+ Billion food insecure, 300+ million on the verge of famine. its a BOMB folks",claim,sensationalist,real_data,Speculative future climate impacts
+Additional Details Here.",claim,extreme_events,real_data,"claim telling the exact date, time and location.",,
+"Farmers , Fishers Urged To Prepare For Hurricane Season",opinion,extreme_events,real_data,General commentary on hurricane season,,
+🌪️ TORNADO WARNING Marion & Warren Counties IA until 11:15p CDT. Extreme threat — seek shelter NOW. Track this event free at vortexwxpredictions.com while we work toward real markets. #SevereWx #TornadoWarning https://vortexwxpredictions.com,claim,extreme_events,real_data,claim telling about time and location with a followup link for more updates.,,
+Today at 3PM: Suzuki Session 3: Community Resilience to Escalating Climate Threats (Virtual). Emergency preparedness isn’t just about protecting our individual households. It’s about getting to know your neighbours and making a plan so no one is left behind. Hear about David Suzuki and Tara...,opinion,sensationalist,real_data,Climate emergency event scheduled,,
+"It affects all the worlds climate systems... it will have more energy to work with than the last one...It will Bring Floods and droughts and massive climate shifts...and many crops will be lessened or fail all together...2+ Billion food insecure, 300+ million on the verge of famine. its a BOMB folks",claim,sensationalist,real_data,Speculative future climate impacts,,
 "Climate Catastrophe
 A new warning of a strong El Niño event, with an 80% chance of emergence between June and August 2026. 
 
 This event could lead to extreme weather conditions, including droughts, floods, and heatwaves, impacting regions worldwide
 
-gizmodo.com/long-threate...",claim,sensationalist,real_data,El Niño event probability and impact prediction
+gizmodo.com/long-threate...",claim,sensationalist,real_data,El Niño event probability and impact prediction,,
 """Trump is literally ripping climate science out of the ocean — dismantling a $368 million monitoring system that took a decade to build, just as scientists warn the Atlantic current may be tipping toward collapse""
 www.facebook.com/joshhelfgott...
-via Josh Helfgott",claim,sensationalist,real_data,Verifiable climate science monitoring system claim
+via Josh Helfgott",claim,sensationalist,real_data,Verifiable climate science monitoring system claim,,
 "'The 💩 administration is moving to dismantle an ocean obs system consisting of >900 instruments in the Pacific & Atlantic oceans. Data supplied by the system has been used to study key Atlantic currents that increasingly appear in danger of collapse as climate warms.'
 
-e360.yale.edu/digest/trump...",claim,sensationalist,real_data,Verifiable ocean observation system claim
-"The reports found 49 in coastal areas are at risk from sea-level rise or storm surge from hurricanes, with many located near highly populated areas and important ecological locales like Chesapeake Bay.",claim,sensationalist,real_data,Risk assessment for coastal areas
+e360.yale.edu/digest/trump...",claim,sensationalist,real_data,Verifiable ocean observation system claim,,
+"The reports found 49 in coastal areas are at risk from sea-level rise or storm surge from hurricanes, with many located near highly populated areas and important ecological locales like Chesapeake Bay.",claim,sensationalist,real_data,Risk assessment for coastal areas,,
 "This would have previously caused absolute outrage in the media and calls for heads to roll.
 This is not acceptable. 
 We must #dobetter #votethemout 
-We all deserve a government that cares about our wellbeing and our future safety. Our tamariki don't deserve to inherit a climate catastrophe!",opinion,sensationalist,real_data,political opinion
-"The 2026 Arctic sea ice maximum volume may turn out to be about 18,000 km³. With strong melting taking place from April 2026, this may well cause a Blue Ocean Event to occur, with virtually all Arctic sea disappearing in September 2026. arctic-news.blogspot.com/2026/04/doub...",claim,sensationalist,real_data,Checkable April 2026 Arctic sea ice maximum volume and melting scenario
-"Most people have never heard of acid rain, but they will. Climate change, along with bomb cyclones, mixing with acid rain, will devastate ecosystems like Agent Orange. Acid rain ate the paint off two cars I owned when I was young. Some streams where I live have never recovered",opinion,sensationalist,real_data,opinion on speculative future ecosystem impact
+We all deserve a government that cares about our wellbeing and our future safety. Our tamariki don't deserve to inherit a climate catastrophe!",opinion,sensationalist,real_data,political opinion,,
+"The 2026 Arctic sea ice maximum volume may turn out to be about 18,000 km³. With strong melting taking place from April 2026, this may well cause a Blue Ocean Event to occur, with virtually all Arctic sea disappearing in September 2026. arctic-news.blogspot.com/2026/04/doub...",claim,sensationalist,real_data,Checkable April 2026 Arctic sea ice maximum volume and melting scenario,,
+"Most people have never heard of acid rain, but they will. Climate change, along with bomb cyclones, mixing with acid rain, will devastate ecosystems like Agent Orange. Acid rain ate the paint off two cars I owned when I was young. Some streams where I live have never recovered",opinion,sensationalist,real_data,opinion on speculative future ecosystem impact,,
 "World's largest DAC developer just poured $10B into North American expansion, backed by CDR projects.
 
 It's about a $5B shift away from fossil fuels.
 
-New SEC climate risk disclosure rules make this a ticking time bomb for CFOs.",claim,sensationalist,real_data,Checkable DAC developer expansion
+New SEC climate risk disclosure rules make this a ticking time bomb for CFOs.",claim,sensationalist,real_data,Checkable DAC developer expansion,,
 "🗣What happens when ALL the INFORMATION we receive is a TOTAL DISTORTION.  How will that affect society & the world at large?  We currently have people under the impression, that ""WEATHER RADARS"" control the weather!  As if they're some HAARP DEVICE!  
 
 *They're DAMAGING the RADARS!  
 
--ONE.💯🌪🌧🌀🌬⛈🌩🌨🌞",claim,conspiracy,real_data,Checkable weather radar distortion theory
-solar geoengineering & cloud seeding are real and documented practices my dear im not saying every passenger jet is doing this but these are real things which use aerosolized chemicals to change earths albedo,claim,conspiracy,real_data,Real and documented practices
+-ONE.💯🌪🌧🌀🌬⛈🌩🌨🌞",claim,conspiracy,real_data,Checkable weather radar distortion theory,,
+solar geoengineering & cloud seeding are real and documented practices my dear im not saying every passenger jet is doing this but these are real things which use aerosolized chemicals to change earths albedo,claim,conspiracy,real_data,Real and documented practices,,
 "The ""secret carbon tax"" is going to be a conservative conspiracy theory for decades, just like ""they're going to force you to eat bugs"".
 
-You can't solve made-up problems with material solutions. You've gotta tackle the information environment.",opinion,conspiracy,real_data,Conservative conspiracy theory
-"""There are no targets, there are no timelines, there is no way to evaluate progress, there is no way to evaluate whether it's consistent with the climate agenda and like net-zero,"" said @hadrianmk.bsky.social of @policyalternatives.ca. #canlab www.cbc.ca/news/politic...",opinion,conspiracy,real_data,opinion on climate change framing assertion
+You can't solve made-up problems with material solutions. You've gotta tackle the information environment.",opinion,conspiracy,real_data,Conservative conspiracy theory,,
+"""There are no targets, there are no timelines, there is no way to evaluate progress, there is no way to evaluate whether it's consistent with the climate agenda and like net-zero,"" said @hadrianmk.bsky.social of @policyalternatives.ca. #canlab www.cbc.ca/news/politic...",opinion,conspiracy,real_data,opinion on climate change framing assertion,,
 "44 of
 Dane Wigington @RealGeoEngWatch
 ""...and that harms the climate engineering cause about cover up
@@ -129,26 +129,26 @@ Dane Wigington @RealGeoEngWatch
  trump administration decommissions sea ice data that sounded an alarm on Arctic climate change 
 
  just ...""
-insideclimatenews.org/news/0705202...",claim,conspiracy,real_data,Verifiable sea ice data cover-up claim
-"Hi #bhp, can I tell you what to me is big? Not backing down secretly from your net zero agenda. Maybe you should fix your ads? #auspol",opinion,conspiracy,real_data,"Personal experience, not externally checkable"
+insideclimatenews.org/news/0705202...",claim,conspiracy,real_data,Verifiable sea ice data cover-up claim,,
+"Hi #bhp, can I tell you what to me is big? Not backing down secretly from your net zero agenda. Maybe you should fix your ads? #auspol",opinion,conspiracy,real_data,"Personal experience, not externally checkable",,
 "No, Chemtrails Are Not Real or Causing Floods, E.P.A. Says:
 
 The agency took the unusual step of creating websites debunking the conspiracy theory that chemicals are being sprayed in the sky to control the weather or do other things.
 
-www.nytimes.com/2025/07/10/c...",claim,combinations,real_data,"Official statement, verifiable URL"
-"Oh my fucking God, they are REAL. Was out with the dog and bumped into a well dressed/spoken gentlemen, who immediately goes on a swear laden rant about the ""chemtrails"", ""5g weather control"", and the ""great Covid replacement"". Fucking hell.",opinion,combinations,real_data,opinion sharing on Specific weather control claims
-"Nope, they 100% mean commerical jets using chemtrails to control the weather for the Shadow Government",claim,combinations,real_data,Checkable assertion even though false
-"Yep. MAGA can't help but go full tinfoil hat over everything except this. Vaccines, chemtrails, weather control, jewish space lasers. But a rando literally recreates a Zapruder moment and they suddenly have no response. More than weird.",opinion,combinations,real_data,"Official statement, verifiable URL"
+www.nytimes.com/2025/07/10/c...",claim,combinations,real_data,"Official statement, verifiable URL",,
+"Oh my fucking God, they are REAL. Was out with the dog and bumped into a well dressed/spoken gentlemen, who immediately goes on a swear laden rant about the ""chemtrails"", ""5g weather control"", and the ""great Covid replacement"". Fucking hell.",opinion,combinations,real_data,opinion sharing on Specific weather control claims,,
+"Nope, they 100% mean commerical jets using chemtrails to control the weather for the Shadow Government",claim,combinations,real_data,Checkable assertion even though false,,
+"Yep. MAGA can't help but go full tinfoil hat over everything except this. Vaccines, chemtrails, weather control, jewish space lasers. But a rando literally recreates a Zapruder moment and they suddenly have no response. More than weird.",opinion,combinations,real_data,"Official statement, verifiable URL",,
 "Do you have a friend or family member who thinks contrails or so-called ""chemtrails"" are some sort of nefarious plot to,control people or the weather?
 
 The EPA just put up a comprehensive website on the subject—debunking the conspiracies.
-",claim,conspiracy,real_data,"Factually correct, no claim"
-"#gaslighting #1: Calling the climate crisis ""a hoax"" when it was the fossil fuel industry that was gaslighting the public for ~50 years about the threat & what it knew: 4/11",claim,combinations,real_data,Checkable fossil fuel industry knowledge
-"They don't believe in climate change, but do think we can control the weather with chemtrails, to cause hurricanes that wipe out blue states,🙄",claim,combinations,real_data,Checkable assertion even though false
+",claim,conspiracy,real_data,"Factually correct, no claim",,
+"#gaslighting #1: Calling the climate crisis ""a hoax"" when it was the fossil fuel industry that was gaslighting the public for ~50 years about the threat & what it knew: 4/11",claim,combinations,real_data,Checkable fossil fuel industry knowledge,,
+"They don't believe in climate change, but do think we can control the weather with chemtrails, to cause hurricanes that wipe out blue states,🙄",claim,combinations,real_data,Checkable assertion even though false,,
 "The cooker paradox:
 Climate change isn't real because humans can't effect the climate... but chemtrails are real because humans can control the weather.
-#Auspol",opinion,combinations,real_data,"Logical contradiction, no specific claim"
-"It still amazes me the conservatives are willing to believe a medbeds exist, chemtrails are a thing, and weather control machines work. But global warming, heh, slow down there my dude, there needs to be a better look now, it doesn't quite pass Uncle Bill's ""smell test"".",opinion,combinations,real_data,"Opinion, conspiracy theory"
+#Auspol",opinion,combinations,real_data,"Logical contradiction, no specific claim",,
+"It still amazes me the conservatives are willing to believe a medbeds exist, chemtrails are a thing, and weather control machines work. But global warming, heh, slow down there my dude, there needs to be a better look now, it doesn't quite pass Uncle Bill's ""smell test"".",opinion,combinations,real_data,"Opinion, conspiracy theory",,
 "Yes, and it's happened before. 
 
 Laws were passed against witchcraft, including weather control; right now, equally fictional 'chemtrails' are being banned.
@@ -157,33 +157,33 @@ The Scientific Revolution didn't 'come out of nowhere'
 
 - it REMEDIED those attiudes. And another is available. But do YOU want it...?
 
-🧪🪂🌪️",opinion,combinations,real_data,"Historical reference, no specific claim"
+🧪🪂🌪️",opinion,combinations,real_data,"Historical reference, no specific claim",,
 "It’s more conspiracy theories about “chemtrails” and secret weather control.
 Attacks science under the pretext of public safety.
 Could hinder research into technologies that may be needed to deal with real climate change.
-Is not based on credible evidence, but rather ideological fear-mongering.",opinion,combinations,real_data,"Opinion, conspiracy theories"
+Is not based on credible evidence, but rather ideological fear-mongering.",opinion,combinations,real_data,"Opinion, conspiracy theories",,
 "if you meant ""q-anon"" then yes. and chemtrails, 5G, vaccines and fluoridated water as a method of mind control, space lasers controlling the weather etc.
-H of S as a framework leads people to think the main question is ""what are those people up to?"" And ultimately you get conspiracy theories.",opinion,combinations,real_data,"Comparison to other conspiracy theories, no specific claim"
+H of S as a framework leads people to think the main question is ""what are those people up to?"" And ultimately you get conspiracy theories.",opinion,combinations,real_data,"Comparison to other conspiracy theories, no specific claim",,
 "Commercial airplanes don’t do chemtrails*, they are cloud seeding to manipulate and control the weather
 
-*well, sometimes they do",opinion,combinations,real_data,"Opinion, conspiracy theory"
-This seems to lend credence to the idea that chemtrails and weather control may be real.,opinion,combinations,real_data,"Opinion, conspiracy theory"
-Are they also using Chinese spy weather balloons to create chemtrails to control our weather?,opinion,combinations,real_data,"Opinion, conspiracy theory"
-"Numerous daily, monthly & all-time temp records are likely. Extremely hot daytime highs & record-warm overnight lows will result in increased heat stress leading to widespread major to locally extreme HeatRisk. This heatwave will quickly become dangerous to anyone w/o adequate cooling or hydration.",claim,extreme_events,official_alert,Official source warning forecast
-"I called Mother Nature. She's in a bad mood because of global warming. She said ""I'll see what I can do."" I believe she used the word ""smite"". 🙂",opinion,scientific,sarcasm_joke,No official sources report this + its a sarcasm meme
-"Most of America’s Lower 48 states are about to swelter under an unusually large, strong and long-lasting heat dome that will spike temperatures in a way that the National Weather Service calls “significant and dangerous.”",claim,extreme_events,news_headline_verbatim,Official source contains the exact text of the post
-"Per my friend @tobiasbuckell.bsky.social , any sufficiently large geoengineering system is a James Bond Supervillain weapon.",opinion,scientific,emotional_reaction,Even though the article might be suggestive but there is no explicit evidence
-"That way round they would either make damn sure Caron Capture worked, or they would, by other means, reduce the amount of carbon they emitted. And they’d do whichever of these was most cost effective.",opinion,scientific,political_viewpoint,This seems more opinionated around political views
-"Tories have just signed up to a suicide pact. Since most Tories are boomers, perhaps their view is that climate collapse won’t affect THEM, so why should they be inconvenienced? Tories now as relevant as Binface, if not less so.",opinion,sensationalist,sarcasm_joke,there is sarcasm tone and no relevant source to support this
-& who fucking knows how many ancient viruses are frozen in the permafrost just waiting to thaw out & destroy us all. Ancient strains of anthrax have already been detected & even killed a few ppl. Goods times ahead...,opinion,scientific,emotional_reaction,opinionated tone with a rhetorical and sarcasm
-I’m at the heatwave. I’m at the wildfire smoke event. I’m at the combination heatwave and wildfire smoke event,opinion,extreme_events,personal_narrative,"personal narrative of what they are experiencing, no necessary article to get it verified"
-Trump doesnt believe in climate change. Lovely. www.washingtonpost.com/weather/2026...,claim,extreme_events,false_but_checkable,"Sarcastic framing around a checkable assertion about a named person position, plus a WaPo link. false_but_checkable is a CLAIM thought - not-directly-sourced does not make it an opinion."
-"Carney-Smith find more ways for Canadian taxpayers to subsidize fossil fuel industries, many American-owned. If this unproved technology works, it may take about 6% of C emission from the tar sands, down from 25% touted a few months ago. A fig leaf. www.cbc.ca/news/canada/...",claim,scientific,mixed_emotion_fact,admin-confirmed relabel
-The US may be hitting a tipping point for heat pumps #Climate,claim,scientific,news_headline_verbatim,The linked article contains the heading same as post text
-DON'T LET TEXAN FRACKERS BLACK MOUNTAIN ENERGY FRACK THE KIMBERLEY‼️ Send your submission opposing this reckless vandalism in a time of climate emergency👇👇👇 🙏Environs Kimberley,opinion,sensationalist,political_viewpoint,based on opinion guiding users to oppose the political decision
-It turns out the reason the sun is gone is because there's a storm and tornado warning. Please hold the dragon.,opinion,extreme_events,sarcasm_joke,"Joke framing around a weather mention; no place or time asserted, so the tornado warning isn't checkable."
-"If you want to make an anti-global warming movie show what Florida's gonna be like in 40 years. Everything flooded at low tide, rich people gone somewhere nicer, nothing but people too broke to leave.",opinion,scientific,hyperbole_doom,Unattributed 40-year prediction framed as a hypothetical; no source or projection to check.
-"The oceans are full of heat, and it’s coming ashore #Climate",claim,scientific,news_headline_verbatim,The ref link contains the same post text as the source headline
-A ‘crisis communication gap’ threatens Indigenous peoples #Climate,claim,sensationalist,news_headline_verbatim,The source article contains the same text as the article
-"'Climate free fall': why the biggest risk to our economies is yet to be recognized ->Nature | More on ""Climate tipping points economic risks"" at BigEarthData.ai | #Climate",claim,sensationalist,news_headline_verbatim,The source article contains the same post text
-Carbon capture is vital in tackling the climate crisis | Letters,claim,scientific,news_headline_verbatim,source article contains the same text as post
+*well, sometimes they do",opinion,combinations,real_data,"Opinion, conspiracy theory",,
+This seems to lend credence to the idea that chemtrails and weather control may be real.,opinion,combinations,real_data,"Opinion, conspiracy theory",,
+Are they also using Chinese spy weather balloons to create chemtrails to control our weather?,opinion,combinations,real_data,"Opinion, conspiracy theory",,
+"Numerous daily, monthly & all-time temp records are likely. Extremely hot daytime highs & record-warm overnight lows will result in increased heat stress leading to widespread major to locally extreme HeatRisk. This heatwave will quickly become dangerous to anyone w/o adequate cooling or hydration.",claim,extreme_events,official_alert,Official source warning forecast,,
+"I called Mother Nature. She's in a bad mood because of global warming. She said ""I'll see what I can do."" I believe she used the word ""smite"". 🙂",opinion,scientific,sarcasm_joke,No official sources report this + its a sarcasm meme,,
+"Most of America’s Lower 48 states are about to swelter under an unusually large, strong and long-lasting heat dome that will spike temperatures in a way that the National Weather Service calls “significant and dangerous.”",claim,extreme_events,news_headline_verbatim,Official source contains the exact text of the post,"Another dangerous heat wave to hit in week ahead, meteorologists warn: ‘Not to be played with’",https://nbcnews.to/4wGnz3Q
+"Per my friend @tobiasbuckell.bsky.social , any sufficiently large geoengineering system is a James Bond Supervillain weapon.",opinion,scientific,emotional_reaction,Even though the article might be suggestive but there is no explicit evidence,,
+"That way round they would either make damn sure Caron Capture worked, or they would, by other means, reduce the amount of carbon they emitted. And they’d do whichever of these was most cost effective.",opinion,scientific,political_viewpoint,This seems more opinionated around political views,,
+"Tories have just signed up to a suicide pact. Since most Tories are boomers, perhaps their view is that climate collapse won’t affect THEM, so why should they be inconvenienced? Tories now as relevant as Binface, if not less so.",opinion,sensationalist,sarcasm_joke,there is sarcasm tone and no relevant source to support this,,
+& who fucking knows how many ancient viruses are frozen in the permafrost just waiting to thaw out & destroy us all. Ancient strains of anthrax have already been detected & even killed a few ppl. Goods times ahead...,opinion,scientific,emotional_reaction,opinionated tone with a rhetorical and sarcasm,,
+I’m at the heatwave. I’m at the wildfire smoke event. I’m at the combination heatwave and wildfire smoke event,opinion,extreme_events,personal_narrative,"personal narrative of what they are experiencing, no necessary article to get it verified",,
+Trump doesnt believe in climate change. Lovely. www.washingtonpost.com/weather/2026...,claim,extreme_events,false_but_checkable,"Sarcastic framing around a checkable assertion about a named person position, plus a WaPo link. false_but_checkable is a CLAIM thought - not-directly-sourced does not make it an opinion.",,
+"Carney-Smith find more ways for Canadian taxpayers to subsidize fossil fuel industries, many American-owned. If this unproved technology works, it may take about 6% of C emission from the tar sands, down from 25% touted a few months ago. A fig leaf. www.cbc.ca/news/canada/...",claim,scientific,mixed_emotion_fact,admin-confirmed relabel,,
+The US may be hitting a tipping point for heat pumps #Climate,claim,scientific,news_headline_verbatim,The linked article contains the heading same as post text,The US may be hitting a tipping point for heat pumps,https://grist.org/energy/the-us-may-be-hitting-a-tipping-point-for-heat-pumps/
+DON'T LET TEXAN FRACKERS BLACK MOUNTAIN ENERGY FRACK THE KIMBERLEY‼️ Send your submission opposing this reckless vandalism in a time of climate emergency👇👇👇 🙏Environs Kimberley,opinion,sensationalist,political_viewpoint,based on opinion guiding users to oppose the political decision,,
+It turns out the reason the sun is gone is because there's a storm and tornado warning. Please hold the dragon.,opinion,extreme_events,sarcasm_joke,"Joke framing around a weather mention; no place or time asserted, so the tornado warning isn't checkable.",Yuko Yoshida: Nervous Anime Girl,https://static.klipy.com/ii/8ce8357c78ea940b9c2015daf05ce1a5/dd/a0/MKmIGdso.gif?hh=498&ww=445&mp4=ZBisWAc9Y8HgD8EKmNz&webm=SJ40agB1xSeG5lDJgfGw
+"If you want to make an anti-global warming movie show what Florida's gonna be like in 40 years. Everything flooded at low tide, rich people gone somewhere nicer, nothing but people too broke to leave.",opinion,scientific,hyperbole_doom,Unattributed 40-year prediction framed as a hypothetical; no source or projection to check.,,
+"The oceans are full of heat, and it’s coming ashore #Climate",claim,scientific,news_headline_verbatim,The ref link contains the same post text as the source headline,"The oceans are full of heat, and it's coming ashore",https://grist.org/climate/heatwaves-oceans-record-temperatures-el-nino/
+A ‘crisis communication gap’ threatens Indigenous peoples #Climate,claim,sensationalist,news_headline_verbatim,The source article contains the same text as the article,A 'crisis communication gap’ threatens Indigenous peoples,https://grist.org/global-indigenous-affairs-desk/a-crisis-communication-gap-threatens-indigenous-peoples/
+"'Climate free fall': why the biggest risk to our economies is yet to be recognized ->Nature | More on ""Climate tipping points economic risks"" at BigEarthData.ai | #Climate",claim,sensationalist,news_headline_verbatim,The source article contains the same post text,,
+Carbon capture is vital in tackling the climate crisis | Letters,opinion,scientific,political_viewpoint,"Guardian Letters (opinion section) advocating a stance; verbatim credible headline but an op-ed, not a news report",Carbon capture is vital in tackling the climate crisis | Letters,https://www.theguardian.com/environment/2026/jul/12/carbon-capture-is-vital-in-tackling-the-climate-crisis
