@@ -61,6 +61,26 @@ def _date_int(created_at: str) -> int:
     return int(digits) if len(digits) == 8 and digits.isdigit() else 0
 
 
+def _url_domain(url: str) -> str:
+    """Bare registrable-ish domain of a URL: strip scheme, path, and a leading www."""
+    dom = re.sub(r"^https?://", "", (url or ""), flags=re.I).split("/")[0].lower().strip()
+    return dom[4:] if dom.startswith("www.") else dom
+
+
+def _domain_is_credible(dom: str, credible_domains: list[str]) -> bool:
+    """Exact or dotted-suffix match against the credible/official allowlist (same rule as
+    extract_citations / is_official) — so 'x.theguardian.com' matches but 'theguardian.com.evil' can't."""
+    return any(dom == d or dom.endswith("." + d) for d in credible_domains)
+
+
+def _norm_url(url: str) -> str:
+    """Loose URL equality key: lowercase, drop scheme, the query string / fragment (tracking
+    params like ?utm_source, &CMP differ per reposter for the SAME article), and a trailing slash."""
+    u = re.sub(r"^https?://", "", (url or "").strip(), flags=re.I).lower()
+    u = u.split("#", 1)[0].split("?", 1)[0]
+    return u[:-1] if u.endswith("/") else u
+
+
 class ClimateEvidenceStore:
     """Persistent ChromaDB collection of GDELT news articles, queried by claim text."""
 
@@ -78,7 +98,16 @@ class ClimateEvidenceStore:
         return self.collection.count()
 
     def build_index(self, db_path: str) -> int:
-        """(Re)index leak-free GDELT articles. Idempotent — upsert by post_id."""
+        """(Re)index leak-free evidence: GDELT articles, plus — when
+        `evidence.index_credible_citations` — the CREDIBLE articles posts self-cite, so a
+        post's own linked source can surface as REPORTED rather than a topical near-miss.
+        Idempotent — upsert by id (GDELT keyed by post_id, citations by 'cite::<url>')."""
+        # Cite docs are keyed by normalized URL (which can change) and must vanish if the flag is
+        # turned off — upsert alone can't delete, so clear all prior cite docs and rebuild fresh.
+        try:
+            self.collection.delete(where={"cite": True})
+        except Exception:
+            pass
         con = sqlite3.connect(db_path)
         con.row_factory = sqlite3.Row
         cols = [r[1] for r in con.execute("PRAGMA table_info(posts)").fetchall()]
@@ -92,31 +121,63 @@ class ClimateEvidenceStore:
             f"SELECT post_id, text, author, keyword_category, created_at "
             f"FROM posts WHERE source = 'gdelt'{guard}"
         ).fetchall()
-        con.close()
 
-        rows = [r for r in rows if (r["text"] or "").strip()]
-        if rows:
-            # Region-aware index: derive a coarse location (headline place-name, else the
-            # domain — e.g. weatherbc.com -> British Columbia) and embed it INTO the document
-            # so dense retrieval prefers same-region news. `location`/`date_int` also live in
-            # metadata (date_int powers the optional hard date-window filter at query time).
-            docs, metas, ids = [], [], []
-            for r in rows:
-                loc = extract_location(r["text"], r["author"] or "")
-                docs.append(with_location(r["text"], loc))
+        # Region-aware index: derive a coarse location (headline place-name, else the domain —
+        # e.g. weatherbc.com -> British Columbia) and embed it INTO the document so dense
+        # retrieval prefers same-region news. `location`/`date_int` also live in metadata.
+        docs, metas, ids = [], [], []
+        for r in rows:
+            if not (r["text"] or "").strip():
+                continue
+            loc = extract_location(r["text"], r["author"] or "")
+            docs.append(with_location(r["text"], loc))
+            metas.append({
+                "domain":   r["author"] or "",
+                "url":      r["post_id"],
+                "category": r["keyword_category"] or "",
+                "date":     _iso_date(r["created_at"]),
+                "date_int": _date_int(r["created_at"]),
+                "location": loc,
+                "headline": r["text"],          # clean title (document carries the loc suffix)
+                "cite":     False,
+            })
+            ids.append(r["post_id"])
+
+        # Credible self-citations: a post's external link on a citation/official domain IS
+        # evidence the reader can open, so index its headline too. Deduped by URL, leak-guarded.
+        ev = _load_cfg().get("evidence", {})
+        if ev.get("index_credible_citations", False) and "external_url" in cols:
+            credible = list(ev.get("citation_domains", [])) + list(ev.get("official_sources", []))
+            crows = con.execute(
+                f"SELECT external_url, external_title, keyword_category, created_at "
+                f"FROM posts WHERE source = 'bluesky' AND external_url IS NOT NULL AND external_url != '' "
+                f"AND external_title IS NOT NULL AND external_title != ''{guard}"
+            ).fetchall()
+            seen = set()
+            for r in crows:
+                url, title = (r["external_url"] or "").strip(), (r["external_title"] or "").strip()
+                key = _norm_url(url)
+                if not url or not title or key in seen or not _domain_is_credible(_url_domain(url), credible):
+                    continue
+                seen.add(key)
+                loc = extract_location(title, _url_domain(url))
+                docs.append(with_location(title, loc))
                 metas.append({
-                    "domain":   r["author"] or "",
-                    "url":      r["post_id"],
+                    "domain":   _url_domain(url),
+                    "url":      url,
                     "category": r["keyword_category"] or "",
                     "date":     _iso_date(r["created_at"]),
                     "date_int": _date_int(r["created_at"]),
                     "location": loc,
-                    "headline": r["text"],          # clean title (document carries the loc suffix)
+                    "headline": title,
+                    "cite":     True,           # a credible source a post links, not a GDELT pull
                 })
-                ids.append(r["post_id"])
-            # ChromaDB caps a single add/upsert (~5461 rows — the SQLite variable limit). The
-            # GDELT corpus can exceed that, so upsert in batches under the client's max instead
-            # of one giant call (a full-corpus upsert raised "Batch size N > max batch size").
+                ids.append("cite::" + key)
+        con.close()
+
+        if ids:
+            # ChromaDB caps a single add/upsert (~5461 rows — the SQLite variable limit), so
+            # upsert in batches under the client's max instead of one giant call.
             try:
                 max_batch = self.client.get_max_batch_size()
             except Exception:
@@ -174,6 +235,7 @@ class ClimateEvidenceStore:
             "date":       m.get("date", ""),
             "location":   m.get("location", ""),
             "similarity": s,
+            "cite":       bool(m.get("cite")),       # True = a credible article a post self-cites
         } for doc, m, s in zip(docs, metas, sims)]
         top = sims[0] if sims else 0.0
         tier = "HIGH" if top >= high else ("LOW" if top >= low else "NONE")
@@ -396,7 +458,10 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
             news_status = "NO MATCH"
             region_mismatch = True
 
-    if verdict == "corroborated" and cited:
+    if verdict == "corroborated" and cited and corro.get("self_cite"):
+        evidence_phrase = (f"The credible source this post cites ({cited['domain']}) reports this "
+                           "exact claim — open the linked article to confirm it says so.")
+    elif verdict == "corroborated" and cited:
         evidence_phrase = (f"A retrieved news article appears to report this event ({cited['domain']}) — "
                            "open the source to confirm it actually says so.")
     elif verdict == "partial" and cited:
@@ -539,6 +604,15 @@ def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int
         corro = corroboration_check(claim_text, retrieval["matches"], model=cfg["model"]["name"])
     else:
         corro = retrieval_only_verdict(retrieval)
+    # Credible self-citation → REPORTED: if the post links a credible article and retrieval's top
+    # match IS that exact article (indexed via evidence.index_credible_citations), the post's own
+    # cited source reports this — a stronger signal than a topical GDELT neighbour, so surface it.
+    if ev.get("index_credible_citations", False) and external_url and retrieval.get("matches"):
+        top = retrieval["matches"][0]
+        if (top.get("cite") and _norm_url(top.get("url", "")) == _norm_url(external_url)
+                and top.get("similarity", 0) >= ev.get("high_proximity", 0.60)):
+            corro = {"verdict": "corroborated", "article": 1, "self_cite": True,
+                     "reason": f"the credible source this post cites ({top.get('domain', '')}) reports this"}
     official_list = ev.get("official_sources", [])
     # Scan the post text AND its embed/link (external_url) for citations — a post that *shares* a
     # credible article via a Bluesky embed card cites its source just as much as one that pastes the

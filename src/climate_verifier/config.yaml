@@ -20,6 +20,12 @@ evidence:                          # Week 6 — evidence matching (GDELT news co
   low_proximity: 0.40                 # <  : display floor — articles below this aren't shown at all
   high_reach: 50                      # engagement >= this counts as "high reach" for the red flag
 
+  index_credible_citations: true      # ALSO index a post's self-cited CREDIBLE article (its external
+                                      #   link on a citation_domains / official_sources domain) as
+                                      #   evidence, so the post's own source surfaces as REPORTED
+                                      #   instead of a topical near-miss. Rebuild the index after
+                                      #   toggling: uv run python -m climate_verifier.pipeline.evidence --build
+
   # --- Region- and time-aware retrieval (Week 6 improvement) ----------------------
   # Location is derived per GDELT article (headline place-name, else the domain — e.g.
   # weatherbc.com -> British Columbia) and embedded INTO the vector document; the claim's
