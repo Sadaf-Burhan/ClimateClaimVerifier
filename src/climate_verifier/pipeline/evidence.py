@@ -114,7 +114,20 @@ class ClimateEvidenceStore:
                     "headline": r["text"],          # clean title (document carries the loc suffix)
                 })
                 ids.append(r["post_id"])
-            self.collection.upsert(ids=ids, documents=docs, metadatas=metas)
+            # ChromaDB caps a single add/upsert (~5461 rows — the SQLite variable limit). The
+            # GDELT corpus can exceed that, so upsert in batches under the client's max instead
+            # of one giant call (a full-corpus upsert raised "Batch size N > max batch size").
+            try:
+                max_batch = self.client.get_max_batch_size()
+            except Exception:
+                max_batch = 5000
+            step = max(1, min(max_batch, 5000))
+            for i in range(0, len(ids), step):
+                self.collection.upsert(
+                    ids=ids[i:i + step],
+                    documents=docs[i:i + step],
+                    metadatas=metas[i:i + step],
+                )
         return self.collection.count()
 
     def evidence_for_claim(self, claim_text: str, k: int = 5,

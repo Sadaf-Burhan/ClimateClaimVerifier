@@ -20,7 +20,7 @@ from climate_verifier.ingestion.gdelt import fetch_articles
 from climate_verifier.ingestion.store import (save, hours_since_last_ingestion, set_last_ingestion_time,
                                               old_bluesky_post_ids, oldest_bluesky_post_ids, delete_posts)
 from climate_verifier.pipeline.topic_filter import filter_posts
-from climate_verifier.pipeline.geo import extract_location
+from climate_verifier.pipeline.geo import extract_location, with_location
 from climate_verifier.health import update_health
 
 CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
@@ -161,6 +161,100 @@ def topup_evidence_for_claims(db_path: str, days_back: int = 7, delay: float = 4
     return inserted
 
 
+def valid_evidence_topics(db_path: str, cfg: dict) -> set[str]:
+    """The topic-query set the GDELT corpus is allowed to hold: every config keyword, plus the
+    (region, subject) query each stored CLAIM buckets to. A GDELT article whose `keyword` is
+    outside this set is an orphan — the claim/keyword that pulled it is gone, so it's dead weight."""
+    valid = {kw for kw, _ in flatten_keywords(cfg["ingestion"]["keywords"])}
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        rows = con.execute(
+            "SELECT p.text, p.keyword FROM posts p "
+            "JOIN classifications c ON p.post_id = c.post_id "
+            "WHERE c.has_claim = 1 AND p.source = 'bluesky'"
+        ).fetchall()
+    finally:
+        con.close()
+    for r in rows:
+        q, _ = build_topic_query(r["text"], r["keyword"] or "")
+        if q:
+            valid.add(q)
+    return valid
+
+
+def prune_gdelt_evidence(db_path: str, keep: int = 2, max_age_days: int = 45,
+                         valid_topics: set[str] | None = None, dry_run: bool = False) -> dict:
+    """Cap the GDELT evidence corpus so it stays small and relevant (scalability guard).
+
+    Three deletions, in order — never touches Bluesky posts or held-out eval/train rows:
+      1. STALE  — articles older than `max_age_days` (same recency rule the top-up uses).
+      2. ORPHAN — articles whose topic (`keyword`) isn't in `valid_topics` (a live claim topic
+                  or a config keyword). Skipped when `valid_topics` is None.
+      3. CAP    — per remaining topic, keep only the `keep` articles most RELEVANT to the topic,
+                  scored by cosine of each article's region-aware embedding to the topic query
+                  (the same `with_location` form retrieval uses); delete the rest.
+
+    Returns {before, stale, orphan, capped, kept, after}. `dry_run` counts without deleting."""
+    now = datetime.now(timezone.utc)
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    cols = [r[1] for r in con.execute("PRAGMA table_info(posts)").fetchall()]
+    guard = ""
+    if "in_eval_set" in cols:
+        guard += " AND (in_eval_set IS NULL OR in_eval_set = 0)"
+    if "in_train_set" in cols:
+        guard += " AND (in_train_set IS NULL OR in_train_set = 0)"
+    rows = con.execute(
+        f"SELECT post_id, text, author, keyword, created_at FROM posts "
+        f"WHERE source = 'gdelt'{guard}"
+    ).fetchall()
+    con.close()
+    before = len(rows)
+
+    # 1) STALE
+    stale = [r["post_id"] for r in rows if not _is_recent(r["created_at"], max_age_days, now)]
+    dropped = set(stale)
+    live = [r for r in rows if r["post_id"] not in dropped]
+
+    # 2) ORPHAN
+    orphan = []
+    if valid_topics is not None:
+        orphan = [r["post_id"] for r in live if (r["keyword"] or "") not in valid_topics]
+        dropped |= set(orphan)
+        live = [r for r in live if r["post_id"] not in dropped]
+
+    # 3) CAP per topic — keep the `keep` most relevant to the topic query
+    from collections import defaultdict
+    by_topic: dict[str, list] = defaultdict(list)
+    for r in live:
+        by_topic[r["keyword"] or ""].append(r)
+
+    capped, kept = [], 0
+    fat = {t: a for t, a in by_topic.items() if len(a) > keep}
+    kept += sum(len(a) for t, a in by_topic.items() if len(a) <= keep)
+    if fat:
+        import numpy as np
+        from climate_verifier.pipeline.embedder import embed  # lazy: loads the model
+        for topic, arts in fat.items():
+            docs = [with_location(a["text"] or "", extract_location(a["text"] or "", a["author"] or ""))
+                    for a in arts]
+            qvec = embed([with_location(topic, extract_location(topic))])[0]
+            scores = embed(docs) @ qvec                      # unit-normalised -> dot == cosine
+            keep_idx = set(int(i) for i in np.argsort(scores)[::-1][:keep])
+            for i, a in enumerate(arts):
+                if i in keep_idx:
+                    kept += 1
+                else:
+                    capped.append(a["post_id"])
+
+    to_delete = stale + orphan + capped
+    if not dry_run and to_delete:
+        delete_posts(db_path, to_delete)
+    return {"before": before, "stale": len(stale), "orphan": len(orphan),
+            "capped": len(capped), "kept": kept, "after": before - len(to_delete)}
+
+
 def load_config() -> dict:
     with open(CONFIG_PATH) as f:
         return yaml.safe_load(f)
@@ -299,12 +393,24 @@ def run_ingestion_cycle(sources=None, force=False):
                 min_recent=ing.get("topup_min_recent", 2),
                 max_age_days=ing.get("max_article_age_days", 45),
                 max_topics=ing.get("topup_max_topics", 60))
-            if added:
+            # Cap the corpus so GDELT can't grow without bound: keep only the most-relevant
+            # articles per topic, and drop stale/orphaned ones. Runs even when the top-up added
+            # nothing, so accumulated bloat still gets swept.
+            pruned = 0
+            if ing.get("evidence_cap_enabled", True):
+                r = prune_gdelt_evidence(
+                    db_path, keep=ing.get("evidence_max_per_topic", 2),
+                    max_age_days=ing.get("max_article_age_days", 45),
+                    valid_topics=valid_evidence_topics(db_path, cfg))
+                pruned = r["stale"] + r["orphan"] + r["capped"]
+                print(f"  Evidence GC — kept {r['after']} articles "
+                      f"(dropped {r['stale']} stale, {r['orphan']} orphan, {r['capped']} over-cap).")
+            if added or pruned:
                 from climate_verifier.pipeline.evidence import get_store  # lazy: heavy import
                 n = get_store().build_index(db_path)
                 print(f"  Evidence index rebuilt — {n} GDELT articles now retrievable.")
         except Exception as e:
-            print(f"  Evidence top-up skipped: {e}")
+            print(f"  Evidence top-up / GC skipped: {e}")
 
     # ── Corpus refresher: expire old posts + drop ones deleted on Bluesky ─────
     if cfg.get("storage", {}).get("refresh_enabled", True):
@@ -337,8 +443,11 @@ if __name__ == "__main__":
     parser.add_argument("--force", action="store_true", help="bypass the 24h interval guard")
     parser.add_argument("--refresh", action="store_true",
                         help="run ONLY the corpus refresher (expire old + remove deleted Bluesky posts)")
+    parser.add_argument("--prune-evidence", action="store_true",
+                        help="run ONLY the GDELT evidence GC: keep the N most-relevant articles per "
+                             "topic (config: evidence_max_per_topic), drop stale + orphaned, rebuild index")
     parser.add_argument("--dry-run", action="store_true",
-                        help="with --refresh: report what WOULD be removed, delete nothing")
+                        help="with --refresh or --prune-evidence: report what WOULD be removed, delete nothing")
     args = parser.parse_args()
 
     cfg      = load_config()
@@ -348,6 +457,21 @@ if __name__ == "__main__":
         r = refresh_corpus(cfg["storage"]["db_path"], cfg, dry_run=args.dry_run)
         print(f"Refresh {'(dry-run) ' if args.dry_run else ''}done — "
               f"expired {r['removed_old']}, removed-deleted {r['removed_gone']}.")
+        raise SystemExit
+
+    if args.prune_evidence:
+        dbp = cfg["storage"]["db_path"]
+        r = prune_gdelt_evidence(
+            dbp, keep=ing.get("evidence_max_per_topic", 2),
+            max_age_days=ing.get("max_article_age_days", 45),
+            valid_topics=valid_evidence_topics(dbp, cfg), dry_run=args.dry_run)
+        print(f"Evidence GC {'(dry-run) ' if args.dry_run else ''}— "
+              f"{r['before']} → {r['after']} articles "
+              f"(stale {r['stale']}, orphan {r['orphan']}, over-cap {r['capped']}).")
+        if not args.dry_run and (r["before"] != r["after"]):
+            from climate_verifier.pipeline.evidence import get_store
+            n = get_store().build_index(dbp)
+            print(f"Evidence index rebuilt — {n} GDELT articles now retrievable.")
         raise SystemExit
 
     if args.once:

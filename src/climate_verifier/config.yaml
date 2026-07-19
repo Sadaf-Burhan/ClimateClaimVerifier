@@ -136,6 +136,13 @@ ingestion:
                               #   (e.g. years-old) article can never enter the corpus.
   topup_max_topics: 60        # per-run safety cap on distinct topics queried (logged, not silent)
 
+  evidence_cap_enabled: false # after the top-up, garbage-collect the evidence corpus and rebuild
+                              #   the index — keeps GDELT from growing without bound (scalability).
+                              #   OFF until the prune is validated: run `--prune-evidence` manually to
+                              #   test, then flip to true to adopt the rule into autonomous cycles.
+  evidence_max_per_topic: 2   # hard cap: keep at most this many GDELT articles per topic, chosen
+                              #   by embedding relevance to the topic query; the rest are deleted
+
   keywords:
 
     # --- Scientific / Factual ---
