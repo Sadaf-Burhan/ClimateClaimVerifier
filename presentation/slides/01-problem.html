@@ -1,11 +1,25 @@
 <section>
   <p class="eyebrow">The problem</p>
-  <div class="diagram diagram-tall">
-    <img src="diagrams/00-problem.svg" alt="A viral climate post reaches a reader who has seconds to judge it. Three questions follow. The tempting answer — an LLM emitting TRUE/FALSE or a credibility score — was rejected in Week 2 in favour of surfacing signals and linking primary sources." />
+  <div class="diagram">
+    <img src="diagrams/00-problem.svg" style="max-height: 300px;" alt="A viral climate post reaches a reader who has seconds to judge it. Three questions follow. The tempting answer — an LLM emitting TRUE/FALSE or a credibility score — was rejected in Week 2 in favour of surfacing signals and linking primary sources." />
   </div>
   <p class="takeaway fragment">
     <strong>Language models are designed to reason over text; they do not possess an independent mechanism for verifying factual claims.</strong>
     <strong>ClimateClaimVerifier retrieves evidence and trust signals to support informed human judgment.</strong>
+  </p>
+
+  <p class="readnote">
+    <span class="lead">Where the LLM actually helps —</span> most of Climate Scanner is deliberately <em>not</em> an
+    LLM: the embeddings, retrieval, red-flag rules and source allow-lists are classical, so they can't hallucinate.
+    The LLM is confined to the two jobs a database can't do — <strong>(1)</strong> judging whether a sentence even
+    contains a <em>checkable claim</em>, telling &ldquo;they're spraying chemtrails, wake up&rdquo; (checkable &rarr;
+    flag) from &ldquo;this weather is insane lol&rdquo; (just a feeling), at high recall; and <strong>(2)</strong>
+    reading an arbitrary <em>screenshot</em> into structured fields (claim, platform, author, engagement) where plain
+    OCR yields only characters. Could it run without an LLM? A cruder skeleton could — keyword rules over the same
+    retrieval — but recall would collapse exactly where misinformation hides (sarcasm, checkable-but-false conspiracy),
+    the off-platform image path would vanish, and you'd trade a <em>prompt + 8 examples</em> for a labelled corpus and
+    a training pipeline. So the LLM <strong>reads and classifies</strong>; retrieval and rules attach the evidence;
+    <strong>you</strong> form the verdict.
   </p>
 
   <aside class="notes">

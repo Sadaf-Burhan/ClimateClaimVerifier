@@ -172,6 +172,22 @@
 .takeaway.win { border-left-color: var(--reader); }
 .takeaway.flag { border-left-color: var(--flag); }
 
+/* Optional-depth reader paragraph — small, muted detail the presenter won't narrate
+   in full; there for a viewer who pauses the video and wants to read it. */
+.readnote {
+  font-size: 0.44em;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  border-left: 3px solid var(--llm);
+  background: #fbfbfe;
+  padding: 0.55em 0.9em;
+  border-radius: 0 6px 6px 0;
+  margin-top: 0.5em;
+}
+.readnote strong { color: var(--ink); }
+.readnote em { color: var(--ink-faint); }
+.readnote .lead { color: var(--llm); font-weight: 650; }
+
 /* ---- stat rows ---------------------------------------------------------- */
 
 .stats {
