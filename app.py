@@ -88,7 +88,7 @@ def _load_posts(db_path: str, has_claim: int, limit: int = 25, sort_by: str = "e
     label_expr = "COALESCE(c.admin_label, c.has_claim)" if has_admin else "c.has_claim"
     rows = con.execute(f"""
         SELECT p.post_id, p.text, p.author, p.author_followers, p.vision_signal,
-               p.keyword_category, p.created_at, p.external_url, c.reason,
+               p.keyword_category, p.created_at, p.external_url, p.external_title, c.reason,
                {label_expr} AS has_claim,
                (p.likes + p.reposts + p.replies + p.quotes) AS engagement
         FROM posts p JOIN classifications c ON p.post_id = c.post_id
@@ -419,13 +419,14 @@ def _render_trust(store, post: dict, classify_first: bool):
     _render_assessment_body(
         store, text=text, engagement=int(post.get("engagement", 0)), source="bluesky",
         followers=post.get("author_followers", 0) or 0, author=post.get("author", "") or "",
-        external_url=post.get("external_url", "") or "", vision=vision,
+        external_url=post.get("external_url", "") or "",
+        external_title=post.get("external_title", "") or "", vision=vision,
         is_claim=is_claim, reason=reason)
 
 
 def _render_assessment_body(store, *, text: str, engagement: int, source: str, followers: int,
                             author: str, external_url: str, vision: dict | None,
-                            is_claim: bool, reason: str):
+                            is_claim: bool, reason: str, external_title: str = ""):
     """Shared assessment render used by BOTH the Bluesky-link path and the uploaded-screenshot
     path: classification verdict → missed-claim nomination → reader signal → retrieved evidence.
     Source-agnostic — the only difference between the two paths is the header their callers draw
@@ -439,7 +440,7 @@ def _render_assessment_body(store, *, text: str, engagement: int, source: str, f
     with st.spinner("Retrieving news + checking corroboration…"):
         a = assess_claim(store, text, engagement=int(engagement), source=source,
                          followers=followers or 0, author=author or "", vision=vision, cfg=cfg,
-                         external_url=external_url or "")
+                         external_url=external_url or "", external_title=external_title or "")
     sig, corro = a["signal"], a["corroboration"]
 
     # Runtime relabel nomination: an OPINION whose evidence contradicts the label (news covers the

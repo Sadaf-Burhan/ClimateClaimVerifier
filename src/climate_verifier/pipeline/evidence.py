@@ -152,39 +152,10 @@ class ClimateEvidenceStore:
             })
             ids.append(r["post_id"])
 
-        # Credible self-citations: a post's external link on a citation/official domain IS
-        # evidence the reader can open, so index its headline too. Deduped by URL, leak-guarded.
-        ev = _load_cfg().get("evidence", {})
-        if ev.get("index_credible_citations", False) and "external_url" in cols:
-            credible = list(ev.get("citation_domains", [])) + list(ev.get("official_sources", []))
-            crows = con.execute(
-                f"SELECT external_url, external_title, keyword_category, created_at "
-                f"FROM posts WHERE source = 'bluesky' AND external_url IS NOT NULL AND external_url != '' "
-                f"AND external_title IS NOT NULL AND external_title != ''{guard}"
-            ).fetchall()
-            seen = set()
-            for r in crows:
-                url, title = (r["external_url"] or "").strip(), (r["external_title"] or "").strip()
-                key = _norm_url(url)
-                hkey = " ".join(title.split()).lower()   # same headline via different URL forms -> one entry
-                if (not url or not title or key in seen or hkey in seen_head
-                        or not _domain_is_credible(_url_domain(url), credible)):
-                    continue
-                seen.add(key)
-                seen_head.add(hkey)
-                loc = extract_location(title, _url_domain(url))
-                docs.append(with_location(title, loc))
-                metas.append({
-                    "domain":   _url_domain(url),
-                    "url":      url,
-                    "category": r["keyword_category"] or "",
-                    "date":     _iso_date(r["created_at"]),
-                    "date_int": _date_int(r["created_at"]),
-                    "location": loc,
-                    "headline": title,
-                    "cite":     True,           # a credible source a post links, not a GDELT pull
-                })
-                ids.append("cite::" + key)
+        # NOTE: credible self-cited articles are NOT indexed. A post's own cited source is handled
+        # in assess_claim as a direct claim-vs-headline check (see `credible_cite_reported`), so it
+        # never enters the retrievable corpus — keeping the retrieved-news list independent and
+        # duplicate-free. The reconciliation below removes any cite entries left by older builds.
         con.close()
 
         # ChromaDB caps a single add/upsert (~5461 rows — the SQLite variable limit), so
@@ -476,9 +447,10 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
             news_status = "NO MATCH"
             region_mismatch = True
 
-    if verdict == "corroborated" and cited and corro.get("self_cite"):
-        evidence_phrase = (f"The credible source this post cites ({cited['domain']}) reports this "
-                           "exact claim — open the linked article to confirm it says so.")
+    if corro.get("self_cite"):
+        cdom = corro.get("self_cite_domain", "the linked source")
+        evidence_phrase = (f"The credible source this post cites ({cdom}) reports this exact claim "
+                           "— its headline matches your claim; open the linked article to confirm.")
     elif verdict == "corroborated" and cited:
         evidence_phrase = (f"A retrieved news article appears to report this event ({cited['domain']}) — "
                            "open the source to confirm it actually says so.")
@@ -597,7 +569,7 @@ def build_reader_signal(retrieval: dict, corro: dict, engagement: int, source: s
 def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int = 0,
                  source: str = "bluesky", followers: int = 0, domain: str = "",
                  author: str = "", vision: dict | None = None, cfg: dict | None = None,
-                 claim_date: str = "", external_url: str = "",
+                 claim_date: str = "", external_url: str = "", external_title: str = "",
                  retrieval: dict | None = None) -> dict:
     """Full Stage-4 assessment: retrieve (region/time-aware) → corroborate → reader signal,
     factoring self-citations, official-source status, and (edge cases) an image signal
@@ -622,15 +594,18 @@ def assess_claim(store: "ClimateEvidenceStore", claim_text: str, engagement: int
         corro = corroboration_check(claim_text, retrieval["matches"], model=cfg["model"]["name"])
     else:
         corro = retrieval_only_verdict(retrieval)
-    # Credible self-citation → REPORTED: if the post links a credible article and retrieval's top
-    # match IS that exact article (indexed via evidence.index_credible_citations), the post's own
-    # cited source reports this — a stronger signal than a topical GDELT neighbour, so surface it.
-    if ev.get("index_credible_citations", False) and external_url and retrieval.get("matches"):
-        top = retrieval["matches"][0]
-        if (top.get("cite") and _norm_url(top.get("url", "")) == _norm_url(external_url)
-                and top.get("similarity", 0) >= ev.get("high_proximity", 0.60)):
-            corro = {"verdict": "corroborated", "article": 1, "self_cite": True,
-                     "reason": f"the credible source this post cites ({top.get('domain', '')}) reports this"}
+    # Credible self-citation → REPORTED (no indexing): if the post links a credible source whose
+    # HEADLINE matches the claim, the cited source reports it. A direct claim-vs-title similarity —
+    # NOT a corpus entry — so the cited article never appears in (or duplicates) the retrieved list.
+    if ev.get("credible_cite_reported", True) and external_url and external_title:
+        credible = list(ev.get("citation_domains", [])) + list(ev.get("official_sources", []))
+        cdom = _url_domain(external_url)
+        if _domain_is_credible(cdom, credible):
+            from climate_verifier.pipeline.embedder import similarity
+            if similarity(claim_text, external_title) >= ev.get("high_proximity", 0.60):
+                corro = {"verdict": "corroborated", "article": 0, "self_cite": True,
+                         "self_cite_domain": cdom,
+                         "reason": f"the credible source this post cites ({cdom}) reports this"}
     official_list = ev.get("official_sources", [])
     # Scan the post text AND its embed/link (external_url) for citations — a post that *shares* a
     # credible article via a Bluesky embed card cites its source just as much as one that pastes the
@@ -660,7 +635,7 @@ def assess_db_claims(store: "ClimateEvidenceStore", db_path: str, limit: int = 1
     con.row_factory = sqlite3.Row
     rows = con.execute("""
         SELECT p.text, p.source, p.author, p.author_followers, p.vision_signal, p.created_at,
-               p.external_url,
+               p.external_url, p.external_title,
                (p.likes + p.reposts + p.replies + p.quotes) AS engagement
         FROM posts p JOIN classifications c ON p.post_id = c.post_id
         WHERE c.has_claim = 1
@@ -677,7 +652,8 @@ def assess_db_claims(store: "ClimateEvidenceStore", db_path: str, limit: int = 1
         a = assess_claim(store, r["text"], engagement=r["engagement"], source=r["source"],
                          followers=r["author_followers"] or 0, author=r["author"] or "",
                          domain=r["author"] if r["source"] == "gdelt" else "", vision=vision, cfg=cfg,
-                         claim_date=r["created_at"] or "", external_url=r["external_url"] or "")
+                         claim_date=r["created_at"] or "", external_url=r["external_url"] or "",
+                         external_title=r["external_title"] or "")
         out.append({"text": r["text"], "author": r["author"], "source": r["source"],
                     "engagement": r["engagement"], **a})
     return out
