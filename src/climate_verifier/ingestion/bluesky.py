@@ -129,6 +129,35 @@ def _extract_embed(embed) -> dict:
     return out
 
 
+def _extract_facet_link(record) -> str | None:
+    """The first inline rich-text LINK in a post body carries its FULL url in a facet — the body
+    text only shows a truncated display string ('www.nyc.gov/site/em/abou…'). Return that uri so a
+    post whose link is an inline facet (NOT an embed card) still gets a working, complete
+    external_url. Any feature carrying a `uri` is a link facet (mentions carry `did`, tags a `tag`).
+    Defensive across SDK objects and raw dicts; None on any miss."""
+    facets = _acc(record, "facets")
+    if not facets:
+        return None
+    try:
+        for f in facets:
+            for feat in (_acc(f, "features") or []):
+                uri = _acc(feat, "uri")
+                if uri:
+                    return uri
+    except Exception:
+        pass
+    return None
+
+
+def _embed_and_links(embed, record) -> dict:
+    """`_extract_embed` plus a facet-link fallback: when the post has no embed-card external link,
+    fill `external_url` from the first inline link facet (whose uri is the full, untruncated URL)."""
+    out = _extract_embed(embed)
+    if not out.get("external_url"):
+        out["external_url"] = _extract_facet_link(record)
+    return out
+
+
 def _fetch_posts_raw(client: Client, params: dict, keyword: str) -> list[dict]:
     """
     Raw HTTP fallback when the atproto SDK fails to parse a response
@@ -171,7 +200,7 @@ def _fetch_posts_raw(client: Client, params: dict, keyword: str) -> list[dict]:
             "replies":           post.get("replyCount", 0) or 0,
             "quotes":            post.get("quoteCount", 0) or 0,
             "ingested_at":       datetime.now(timezone.utc).isoformat(),
-            **_extract_embed(post.get("embed")),
+            **_embed_and_links(post.get("embed"), record),
         })
     return posts
 
@@ -221,7 +250,7 @@ def fetch_posts(keyword: str, limit: int, since: str | None = None) -> list[dict
             "replies":           post.reply_count or 0,
             "quotes":            post.quote_count or 0,
             "ingested_at":       datetime.now(timezone.utc).isoformat(),
-            **_extract_embed(getattr(post, "embed", None)),
+            **_embed_and_links(getattr(post, "embed", None), getattr(post, "record", None)),
         })
     return posts
 
@@ -279,7 +308,7 @@ def fetch_post_by_url(url: str) -> dict | None:
             "replies":           post.reply_count or 0,
             "quotes":            post.quote_count or 0,
             "ingested_at":       datetime.now(timezone.utc).isoformat(),
-            **_extract_embed(getattr(post, "embed", None)),
+            **_embed_and_links(getattr(post, "embed", None), getattr(post, "record", None)),
         }
     except Exception:
         return None
