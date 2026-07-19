@@ -1,0 +1,134 @@
+<!-- Vertical stack: the main talk ends at Reflection. Press DOWN (or Space) to
+     reach these during Q&A; press RIGHT to skip the stack entirely. -->
+<section>
+  <section class="divider">
+    <p class="eyebrow">Appendix</p>
+    <h2>Backup slides</h2>
+    <p class="lede">Press <strong>↓</strong> for the detail behind any answer.<br />
+    Red-flag logic · deployment · eval discipline · the LoRA frontier · known gaps.</p>
+
+    <aside class="notes">
+      <p>Not part of the 8 minutes. Press DOWN to reach these if a question needs
+      one — the deck is deep-linked, so you can also jump straight to a slide by URL.</p>
+    </aside>
+  </section>
+
+  <section class="diagram-full">
+    <p class="eyebrow">Appendix · How a red flag is raised</p>
+    <div class="diagram">
+      <img src="diagrams/09-redflag-logic.svg" alt="Two conditions raise suspicion — reach of at least 50 engagements, and no corroboration found. Six guards can defuse it: is social, not an official source, cites no credible source, doesn't relay an official link, no supporting photo, and not a forecast or eyewitness report. All eight must hold to raise a red flag, whose wording is suggestive rather than accusatory." />
+    </div>
+
+    <aside class="notes">
+      <p><strong>Q: "How do you avoid false accusations?"</strong> — this slide.</p>
+      <p>Eight conditions, all of which must hold. Two raise suspicion; six can
+      defuse it. Every guard was earned from a real false flag in real data.</p>
+      <p>The best one: <em>"I saw them spraying chemtrails over my neighborhood this
+      morning"</em> reads as a first-person local eyewitness report, so the eyewitness
+      guard would happily defuse it. A conspiracy check runs <strong>first</strong> on
+      both defusers and refuses to let them fire. Casualness is a trap.</p>
+      <p>The citation matcher is exact-or-dotted-suffix, so <code>evil-nature.com</code>
+      cannot impersonate <code>nature.com</code>. Same rule protects the official
+      allowlist.</p>
+      <p><strong>Known gap:</strong> roughly 67 posts in the corpus cite through URL
+      shorteners, which hide the real domain and get no credit — so they can draw a
+      false "no cited evidence" flag.</p>
+    </aside>
+  </section>
+
+  <section class="diagram-full">
+    <p class="eyebrow">Appendix · How it actually runs</p>
+    <div class="diagram">
+      <img src="diagrams/10-two-loops.svg" alt="Two independent loops. Loop 1 on local CPU runs the ingestion cycle on APScheduler with a 24-hour guard: fetch, filter, save, demand-driven GDELT top-up, rebuild index. Loop 2 on GPU/Colab runs maintenance: apply admin overrides first, classify pending, gated vision, reindex, evaluate. They meet only through files on disk — ingested.db, chroma_evidence, eval_history.jsonl, admin_overrides.jsonl. The Streamlit app reads only, plus live classify and vision on user-submitted posts." />
+    </div>
+
+    <aside class="notes">
+      <p><strong>Q: "Is this actually deployed / how does it scale?"</strong></p>
+      <p>Two loops that never call each other — they meet only through files on disk.</p>
+      <p>The reason is a direct consequence of Week 4. Single-post inference is what
+      hits the recall target, and it costs ~16x the LLM calls. So ingestion is cheap
+      and runs on a laptop; the LLM backlog is batched onto a GPU. <strong>The
+      classifier's recall win dictated the deployment topology.</strong></p>
+      <p><strong>Be honest if asked:</strong> a single unified <code>run_daily()</code>
+      entrypoint is designed but <em>not built</em> — today it's two commands. The
+      chaining exists; the one-button version doesn't.</p>
+    </aside>
+  </section>
+
+  <section class="diagram-full">
+    <p class="eyebrow">Appendix · Evaluation discipline</p>
+    <div class="diagram">
+      <img src="diagrams/11-eval-discipline.svg" alt="Four independent evals — classifier (frozen gold, n=100, recall 0.875, precision 0.70), retrieval (no eval exists, stated not hidden), red-flag signal (n=7, 7/7), and image extraction (n=16, gate 1.0). Three feed a drift log, eval_history.jsonl, stamped with model digest and Ollama version. The log caught gold moving 0.9583 to 0.875 on a frozen set — a real regression, not noise. The rule that followed: never explain a gold move away as noise again." />
+    </div>
+
+    <aside class="notes">
+      <p><strong>Q: "How do you know it isn't silently degrading?"</strong></p>
+      <p>Every eval run is stamped with the model digest and the Ollama version, and
+      appended to a drift log. That's how I know the 0.9583 → 0.875 move is real and
+      not a runtime change.</p>
+      <p>There are two eval sets on purpose: a <strong>frozen gold</strong> set of 100
+      rows that is never relabelled, and a <strong>dynamic</strong> set that grows as I
+      adjudicate new edge cases — currently 112 rows. Gold catches regression; dynamic
+      catches concept drift.</p>
+      <p><strong>Honest caveat:</strong> they overlap heavily right now (~99 shared
+      rows), so the dynamic set can barely register drift yet. It needs to diverge
+      before it earns its name.</p>
+    </aside>
+  </section>
+
+  <section>
+    <p class="eyebrow w5">Appendix · The Week 5 frontier</p>
+    <h2>Why no adapter shipped</h2>
+    <table>
+      <thead>
+        <tr><th>Configuration</th><th>Recall</th><th>Precision</th><th>Verdict</th></tr>
+      </thead>
+      <tbody>
+        <tr class="win"><td>Base, single-post <em>(shipped)</em></td><td>0.938</td><td>0.703</td><td>recall target met</td></tr>
+        <tr class="dead"><td>Adapter · 26% claim</td><td>0.812</td><td>0.951</td><td>recall too low</td></tr>
+        <tr class="dead"><td>Adapter · 40% claim</td><td>0.854</td><td>0.788</td><td>neither gate</td></tr>
+        <tr class="dead"><td>Adapter · 50% claim</td><td>0.958</td><td>0.742</td><td>precision too low</td></tr>
+      </tbody>
+    </table>
+    <p class="takeaway">
+      The bar was <strong>recall ≥ 0.90 AND precision ≥ 0.85</strong>. The best adapter beat the
+      base on precision by <strong>0.04</strong> — while giving up 0.08 recall. Not a trade worth
+      making when a downstream RAG layer recovers precision for free.
+    </p>
+
+    <aside class="notes">
+      <p><strong>Q: "Did you try fine-tuning?" / "Why not just train it more?"</strong></p>
+      <p>These are the Week-5 measurements, taken at the time on the then-current eval
+      set — that's why the base row reads 0.938 rather than the 0.875 I show on the
+      results slide. The <em>relative</em> comparison is what matters here: all four
+      rows were measured under identical conditions.</p>
+      <p>The frontier is real and it's a data-volume and model-size limit, not label
+      noise. ~120 training examples against a 3B model.</p>
+      <p>If pushed on what would move it: more labelled data, or a bigger base. Both
+      were out of scope for a local-only, zero-cost build.</p>
+    </aside>
+  </section>
+
+  <section>
+    <p class="eyebrow">Appendix · Known gaps</p>
+    <h2>What I'd fix, in order</h2>
+    <ul>
+      <li class="fragment"><strong>No retrieval eval.</strong> The precision workhorse is the one stage with no number.</li>
+      <li class="fragment"><strong>Recall sits at 0.875, below the 0.90 bar</strong> — six specific rows, the same six every run.</li>
+      <li class="fragment"><strong>Headline-only corpus.</strong> GDELT returns titles, not article bodies. A full news parser was ruled out of scope — bot walls, paywalls, JS rendering.</li>
+      <li class="fragment"><strong>URL shorteners hide citations.</strong> ~67 posts cite through bit.ly and friends and get no credit for it.</li>
+      <li class="fragment"><strong><code>run_daily()</code> isn't built.</strong> The autonomous loop is designed and chained across two commands, not one.</li>
+      <li class="fragment"><strong>The dynamic eval set barely diverges from gold</strong> (~99 shared rows), so it can't detect concept drift yet.</li>
+    </ul>
+
+    <aside class="notes">
+      <p>If asked "what's missing" — this is the list, ordered by how much it would
+      actually change my confidence in the system.</p>
+      <p>The framing to hold: <strong>"no match" is ambiguous, not negative.</strong>
+      Everything the system says is scoped to the retrieved set. It never claims no
+      evidence exists in the world — only that it found none in what it searched.
+      That's the honest limit of a headline-only corpus, and it's why the UI wording
+      says "in our set."</p>
+    </aside>
+  </section>
+</section>

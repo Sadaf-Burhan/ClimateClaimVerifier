@@ -1,0 +1,31 @@
+# Week 8 — Evaluation & beyond. The evaluation + monitoring LAYER, described by
+# functionality (no function names). Two eval sets (the dynamic one grows from admin
+# manual relabelling), a fingerprinted drift log scored on the canonical GPU backend,
+# and per-stage health heartbeats surfaced in the app.
+# 3x2 grid, boustrophedon flow, so it stays compact and readable.
+# Render: d2 --layout=dagre --theme=0 12-week8-eval.d2 12-week8-eval.svg
+
+...@_theme
+
+frame: "" {
+  grid-rows: 2
+  grid-columns: 3
+  horizontal-gap: 78
+  vertical-gap: 58
+  style.fill: transparent
+  style.stroke: transparent
+
+  # order: sets, scored, driftlog, health, app, catch  (snakes down then left)
+  sets: "Two evaluation sets\nfrozen GOLD — 100 rows, never relabelled\n→ catches regression\nDYNAMIC — grows from admin manual\nre-ranking → catches concept drift" {class: data; shape: cylinder}
+  scored: "Scored on ONE canonical backend\n(the Colab GPU)\naccuracy — recall · precision · F1\n(the app + CLI can score too, but only\nas local diagnostics — they don't log)" {class: vec}
+  driftlog: "Every run appended to a drift log,\nstamped with the model version + runtime\n— so a metric move is separable\nfrom run-to-run noise" {class: data; shape: page}
+  health: "Per-stage health heartbeats\n→ green / amber / red chips\nin the app sidebar" {class: vec}
+  app: "Surfaced in the app\ndrift charts — recall & precision\nover time · misses vs false alarms" {class: reader}
+  catch: "Why it works\nthe fingerprint tells a real move from noise\n— gold slid 0.9583 → 0.875 on a frozen set:\na real regression, not variance" {class: flag}
+}
+
+frame.sets -> frame.scored: {style.stroke: "#1e8a80"; style.stroke-width: 2}
+frame.scored -> frame.driftlog: {style.stroke: "#1e8a80"; style.stroke-width: 2}
+frame.driftlog -> frame.catch: {style.stroke: "#b3261e"; style.stroke-width: 2}
+frame.catch -> frame.app: {style.stroke: "#2f7a3d"; style.stroke-width: 2}
+frame.health -> frame.app: {style.stroke: "#2f7a3d"; style.stroke-width: 2}

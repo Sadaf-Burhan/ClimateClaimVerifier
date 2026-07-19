@@ -1,0 +1,34 @@
+<section>
+  <p class="eyebrow w2">Week 2 · Tokenization &amp; Embedding</p>
+  <h2>Chosen for the job, not the benchmark</h2>
+  <div class="diagram">
+    <img src="diagrams/02-week2-embeddings.svg" alt="A domain-pair eval (~20 similar/dissimilar pairs, MTEB semantic-similarity task, scored by separation gap) compares five models. gte-small is rejected for scoring near and far pairs equally high. all-mpnet-base-v2 has a wider gap but is 768-dim and heavy. all-MiniLM-L6-v2 is chosen because the text is short (posts and GDELT headlines), so semantic similarity matters more than long context; it is fast, offline, 384-dim, reused as the Week 6 RAG engine, and validated at gap 0.43." />
+  </div>
+  <p class="takeaway fragment">
+    The text is <strong>short</strong> — posts and GDELT <em>headlines</em> — so the job is
+    semantic similarity, not long context. That makes <strong>all-MiniLM-L6-v2</strong> ideal:
+    fast, offline, 384-dim, and it doubles as the RAG engine. all-mpnet won the separation
+    bake-off but was overkill; gte-small was cut for flagging everything similar.
+  </p>
+
+  <aside class="notes">
+    <p><strong>[1:50–2:15] — ~25s. This is a "reasons behind the choice" slide.</strong></p>
+    <p>Week 2 is the semantic layer — turn text into a vector, compare by cosine
+    similarity. To choose a model I built a domain-pair eval — about twenty pairs
+    that should be similar versus dissimilar — searched MTEB for the semantic-similarity
+    task, and scored each model by its separation gap.</p>
+    <p>Two rejections worth stating. <strong>gte-small</strong> scored high on the
+    similar pairs and <em>also</em> high on the dissimilar ones — it flags nearly
+    everything as similar, a word-level-versus-sentence-level mismatch, so it can't
+    discriminate. And the course baseline, <strong>nomic-embed-text</strong>, is a
+    long-context model — an advantage my data doesn't use.</p>
+    <p><em>[click]</em> Here's the actual reasoning. My text is <strong>short</strong> —
+    Bluesky posts and GDELT gives me headlines only — so long context is wasted and
+    the real job is semantic similarity on short text. That makes all-MiniLM-L6-v2
+    the right pick: it's fast, runs fully offline with no second inference server,
+    384 dimensions are plenty, and — the clincher — the same encoder becomes the
+    Week 6 RAG retrieval engine. all-mpnet had a slightly wider separation gap but
+    it's 768-dim and heavier — overkill here. Validated at a 0.43 gap: similar pairs
+    0.64, dissimilar 0.21.</p>
+  </aside>
+</section>

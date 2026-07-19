@@ -1,0 +1,60 @@
+<section>
+  <p class="eyebrow w8">Eval results</p>
+  <h2>Four evals, one per stage — and one gap</h2>
+
+  <div class="stats">
+    <div class="stat miss">
+      <div class="n">0.875</div>
+      <div class="k">classifier recall</div>
+      <div class="sub">frozen gold, n=100 · precision 0.70<br /><strong>misses the 0.90 target</strong></div>
+    </div>
+    <div class="stat vec">
+      <div class="n">7 / 7</div>
+      <div class="k">red-flag signal</div>
+      <div class="sub">n=7 seed cases · too few to trust a rate</div>
+    </div>
+    <div class="stat vis">
+      <div class="n">1.0</div>
+      <div class="k">image gate + classify</div>
+      <div class="sub">n=16 · claim text mean sim 0.846</div>
+    </div>
+    <div class="stat">
+      <div class="n">—</div>
+      <div class="k">retrieval quality</div>
+      <div class="sub"><strong>no eval exists.</strong> The one stage I can't defend with a number</div>
+    </div>
+  </div>
+
+  <p class="takeaway flag fragment">
+    <strong>Gold moved 0.9583 → 0.875 on a frozen set</strong> — same model digest, same runtime,
+    deterministic across three runs. The drift log caught a real regression I have not yet
+    explained. It's in the repo, not in a drawer.
+  </p>
+  <p class="takeaway fragment">
+    Recall-first means <strong>precision 0.70 is by design, not a miss</strong> — the RAG layer is
+    what recovers it. The number I'm actually failing is recall, and I know exactly which
+    <strong>6 rows</strong> cause it.
+  </p>
+
+  <aside class="notes">
+    <p><strong>[7:00–7:40] — ~40s. Don't get defensive. This slide is a strength.</strong></p>
+    <p>Four evals, one per stage.</p>
+    <p>The classifier, on the frozen gold set: <strong>recall 0.875, precision
+    0.70</strong>. That <strong>misses my 0.90 target</strong> and I'm showing it
+    anyway, because it's the number my eval log actually reproduces.</p>
+    <p>The signal eval is only 7 cases — too few to quote as a rate, and I say so.
+    But it earned its keep: at n=7 it scored 6 out of 7 and exposed a real bug. The
+    forecast guard was being computed and then never used in the red-flag condition.
+    Fixed, and now 7/7. A seven-row eval found a logic bug.</p>
+    <p>Image extraction: gate accuracy and classify agreement both 1.0 at n=16.</p>
+    <p>And <strong>retrieval has no eval at all</strong>. That's the gap. It's the one
+    stage I can't defend with a number, and it's first on the list.</p>
+    <p><em>[click]</em> The drift log caught something real: gold moved from 0.9583 to
+    0.875 on a <em>frozen</em> set. Same model digest, same Ollama version,
+    deterministic across three runs. That's a genuine regression, not noise — and I
+    haven't rooted it out yet. It's in the repo rather than in a drawer.</p>
+    <p><em>[click]</em> Last thing: precision 0.70 is <em>by design</em>. Recall-first,
+    remember — the RAG layer recovers precision. The number I'm genuinely failing is
+    recall, and it's six specific rows, the same six every run.</p>
+  </aside>
+</section>

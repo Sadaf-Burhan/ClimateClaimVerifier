@@ -1,0 +1,48 @@
+<section>
+  <p class="eyebrow">The focus</p>
+  <h2>Two main things became the project focus</h2>
+
+  <div class="cols">
+    <div>
+      <p class="principle fragment">
+        Recall&#8209;first.
+        <span class="attr">A higher recall is the real target as a missed claim is unrecoverable.
+          Precision can be improved downstream with better evidence retrieval.</span>
+      </p>
+    </div>
+    <div>
+      <p class="principle fragment">
+        Evidence, not verdicts.
+        <span class="attr">The system retrieves evidence and trust signals — it does
+        not assign truth; evidence supports verification.</span>
+      </p>
+    </div>
+  </div>
+
+  <hr class="rule" />
+  <p class="metric-defs">
+    <span class="term r">Recall</span> — FN: How many claims falsely labelled as opinions.
+  </p>
+  <p class="metric-defs">
+    <span class="term p">Precision</span> — FP: How many posts we flag as claims, but are actually opinions.
+   
+  </p>
+
+  <aside class="notes">
+    <p><strong>[1:00–1:25] — ~25s. Say it fast, it pays off later.</strong></p>
+    <p>Two things became the focus of the whole project.</p>
+    <p><em>[click]</em> <strong>Recall-first.</strong> Missing a claim can't be
+    recovered later, so the classifier is tuned to catch every potentially
+    verifiable claim — even at the cost of false positives. Precision is recovered
+    downstream, by retrieving evidence.</p>
+    <p><em>[click]</em> <strong>Evidence, not verdicts.</strong> The system retrieves
+    evidence and trust signals; it never assigns truth. The evidence supports the
+    reader's own verification.</p>
+    <p>The footer defines the two metrics I lean on all deck:
+    <strong>recall</strong> is how many real claims we caught — missing one is
+    unrecoverable; <strong>precision</strong> is how many of the posts we flag as
+    claims are actually claims — the rest are false alarms.</p>
+    <p>Keep these in mind — recall-first is why the fine-tuning week produced a
+    negative result, and why the RAG evidence layer exists at all.</p>
+  </aside>
+</section>

@@ -1,0 +1,27 @@
+# Week 2 — Tokenization & Embedding -> the semantic layer.
+# Shows the MODEL-SELECTION RATIONALE (what the instructor wants): a domain-pair
+# eval, the candidates compared, the documented rejection, and why MiniLM shipped.
+# Trimmed to stay compact (3 columns, few lines) so the text renders large.
+# Render: d2 --layout=dagre --theme=0 02-week2-embeddings.d2 02-week2-embeddings.svg
+
+...@_theme
+
+direction: right
+
+eval: "Domain-pair eval\n\n~20 pairs · similar vs dissimilar\nMTEB task: semantic similarity\nmetric: separation gap" {
+  class: vec
+}
+
+compare: "5 models compared" {
+  direction: down
+  gte: "gte-small ✗\nscores near AND far high\n→ can't discriminate" {class: dead}
+  mpnet: "all-mpnet-base-v2\nwider gap, but 768-dim / heavy" {class: dead}
+  mini: "all-MiniLM-L6-v2  ✓ chosen" {class: win}
+}
+
+why: "Why all-MiniLM-L6-v2\n\ntext is SHORT (posts + headlines)\n→ similarity, not long context\nfast · offline · 384-dim · reused for RAG\nvalidated: gap 0.43" {
+  class: win
+}
+
+eval -> compare: {style.stroke: "#1e8a80"; style.stroke-width: 2}
+compare.mini -> why: {style.stroke: "#2f7a3d"; style.stroke-width: 3}

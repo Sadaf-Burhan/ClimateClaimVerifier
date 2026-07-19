@@ -1,0 +1,29 @@
+# How it actually runs: two independent loops that meet only through files on disk.
+# Each loop is ONE box (its steps listed inside), so the diagram stays compact.
+# Render: d2 --layout=dagre --theme=0 10-two-loops.d2 10-two-loops.svg
+
+...@_theme
+
+direction: right
+
+cpu: "LOOP 1 · local CPU · frequent\n\ningestion cycle (24h guard)\nfetch → filter → save\ntop-up → rebuild index" {
+  class: data
+}
+
+disk: "meet only\non disk\n\ningested.db\nchroma\neval_history" {
+  class: data
+  shape: cylinder
+}
+
+gpu: "LOOP 2 · GPU / Colab · batched\n\napply overrides → classify\ngated vision\nreindex → evaluate" {
+  class: llm
+}
+
+app: "Streamlit app\n(reads only)\n\nlive classify + vision\non user-submitted posts" {
+  class: reader
+}
+
+cpu -> disk: "writes" {style.stroke: "#5a6b85"; style.stroke-width: 2}
+gpu -> disk: "writes" {style.stroke: "#5b53b8"; style.stroke-width: 2}
+disk -> gpu: "reads pending" {style.stroke-dash: 3}
+disk -> app: "reads" {style.stroke: "#2f7a3d"; style.stroke-width: 3}

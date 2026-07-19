@@ -1,0 +1,31 @@
+<section>
+  <p class="eyebrow w8">Week 8 · Evaluation &amp; beyond</p>
+  <h2>How we know it isn't silently degrading</h2>
+  <div class="diagram">
+    <img src="diagrams/12-week8-eval.svg" alt="The Week 8 evaluation and monitoring layer, described by functionality. Two evaluation sets: a frozen gold set of 100 rows, never relabelled, catches regression; a dynamic set that grows from admin manual re-ranking catches concept drift. Accuracy — recall, precision, and F1 — is scored on one canonical backend, the Colab GPU (the app and CLI can score too, but only as local diagnostics that don't log). Every run is appended to a drift log stamped with the model version and runtime, so a metric move is separable from run-to-run noise. Per-stage health heartbeats drive green, amber, and red chips in the app sidebar. Drift charts of recall and precision over time, and misses versus false alarms, are surfaced in the app. Because each run is fingerprinted, gold sliding from 0.9583 to 0.875 on a frozen set is a real regression, not variance." />
+  </div>
+  <p class="takeaway fragment">
+    Every run is <strong>fingerprinted</strong> (model version + runtime) on one canonical GPU
+    backend — so a metric move is a <em>real</em> move, not noise. A <strong>frozen gold</strong> set
+    catches regression; a <strong>dynamic</strong> set that grows from <strong>admin manual
+    re-ranking</strong> catches concept drift; health heartbeats turn the sidebar 🟢🟡🔴.
+  </p>
+
+  <aside class="notes">
+    <p><strong>[5:05–5:30] — ~25s. The evaluation layer the full-system slide pointed at.</strong></p>
+    <p>The pipeline is only trustworthy if I can tell when it breaks. So Week 8 is the
+    evaluation and monitoring layer.</p>
+    <p>There are <strong>two evaluation sets</strong> on purpose. A <strong>frozen gold</strong>
+    set — 100 rows, never relabelled — catches regression. And a <strong>dynamic</strong> set
+    that grows as the <strong>admin manually re-ranks and relabels</strong> borderline posts —
+    that's what catches concept drift, the world changing under the model.</p>
+    <p>Everything is scored on <strong>one canonical backend</strong> — the Colab GPU; the app
+    and command line can score too, but only as local diagnostics that don't write the log.
+    Each run is appended to a drift log, <strong>stamped with the model version and runtime</strong>.
+    That fingerprint is the whole point: it lets me tell a real metric move from run-to-run
+    noise. It's how I know that gold sliding from 0.958 to 0.875 on a <em>frozen</em> set is a
+    genuine regression, not variance — a finding I'll come back to in the results.</p>
+    <p>And <strong>health heartbeats</strong> from each stage drive green-amber-red chips in
+    the app sidebar, so degradation shows up before a user notices.</p>
+  </aside>
+</section>

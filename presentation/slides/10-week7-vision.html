@@ -1,0 +1,42 @@
+<section>
+  <p class="eyebrow w7">Week 7 · Multimodal models</p>
+  <h2>One vision model, two entry points</h2>
+  <div class="diagram">
+    <img src="diagrams/07-week7-vision.svg" alt="Week 7 multimodal. One vision model, qwen2.5vl:7b, with two entry points. Entry 1: gated vision on Bluesky posts, fires on ~1% of posts (image edge cases), where a real photo rescues a post and cartoon imagery reinforces suspicion — a small precision recovery on false positives. Entry 2, new: an off-platform screenshot upload of a Facebook, Instagram, or X post, opening the scanner to a wider audience where misinformation actually lives. The screenshot path runs extract_from_image with a 9-field schema (transcribe/infer/null, never guess), then a thin adapter into assess_claim with the spine unchanged and one source-guard tweak. Honest tradeoff: a screenshot strips follower count and verification and adds OCR and hallucination risk, so it is an explicitly lower-confidence signal. Also this week: eyewitness and forecast posts get reframed, not red-flagged, with a conspiracy guard still holding." />
+  </div>
+  <p class="takeaway fragment">
+    The same model, <strong>two doors</strong>: gated vision on Bluesky posts (~1%, edge-case FP
+    recovery), and a <strong>new off-platform screenshot upload</strong> — paste a Bluesky link
+    <em>or</em> a Facebook/X screenshot — to reach the audience where misinformation actually lives.
+    The honest catch: a screenshot strips the reach and source data, so it's flagged a
+    <strong>lower-confidence signal</strong>.
+  </p>
+
+  <aside class="notes">
+    <p><strong>[4:05–4:40] — ~35s. Week 7 is multimodal: one model, two entry points.</strong></p>
+    <p>The first entry point is <strong>gated vision</strong> on Bluesky posts. Every
+    post now ingests its image, but the vision model only fires on ~1% — genuine
+    edge cases where an image-claim isn't already resolved by metadata. There, a real
+    on-the-ground photo can rescue a post and cartoon imagery reinforces suspicion. Its
+    job is a small precision recovery on false positives — a documented ~1% supplement,
+    not the workhorse.</p>
+    <p>The second entry point is the one I'm most excited about: an
+    <strong>off-platform screenshot</strong>. You can paste a Bluesky link, or upload a
+    screenshot of a Facebook, Instagram, or X post. That matters because misinformation
+    mostly lives <em>off</em> Bluesky — this opens the scanner to a far wider audience.
+    A screenshot runs through <code>extract_from_image</code> — a 9-field schema that
+    transcribes what's legible, infers platform from branding, and nulls the rest,
+    never guessing — then a thin adapter hands it to the same <code>assess_claim</code>
+    pipeline. The spine is unchanged; the only downstream change is one source guard
+    that treats an uploaded screenshot as unverified social.</p>
+    <p>And I'm honest about the tradeoff, because this is a trust tool. A screenshot
+    <strong>strips exactly the data the signal is built on</strong> — no follower count,
+    no verification — and adds lossy OCR and hallucination risk. So the screenshot path
+    is explicitly labeled a <strong>lower-confidence signal</strong>: wider reach, weaker
+    evidence, and I say so.</p>
+    <p>Also this week, two reader-signal <strong>reframes</strong>: a first-person
+    eyewitness post and a forecast about a future event both get reframed rather than
+    red-flagged for lacking news corroboration — with a conspiracy guard so "I saw them
+    spraying chemtrails" still flags.</p>
+  </aside>
+</section>

@@ -1,0 +1,25 @@
+# Week 1 — Introduction to LLMs -> the claim/opinion gate, AS IT WAS IN WEEK 1.
+# Week 1 used gemma2:2b (single model, no bake-off). The 8 leak-free few-shot and
+# the thought-first CoT are Week-4 refinements; qwen2.5:3b arrives in Week 3.
+# 2x2 grid keeps the native width small so the text stays readable on a slide.
+# Render: d2 --layout=dagre --theme=0 01-week1-classifier.d2 01-week1-classifier.svg
+
+...@_theme
+
+frame: "" {
+  grid-rows: 2
+  grid-columns: 2
+  horizontal-gap: 110
+  vertical-gap: 70
+  style.fill: transparent
+  style.stroke: transparent
+
+  post: "Bluesky post\n\n'Lytton BC hit 49.6°C\nyesterday.'" {class: data}
+  llm: "gemma2:2b  ·  Ollama (JSON)\n\nfact-checker / climate-analyst persona\nfew-shot: claim / opinion / commentary\noutput: { has_claim, reason }" {class: llm}
+  claim: "CLAIM\npasses downstream" {class: win}
+  opinion: "OPINION\nstored + shown, not corroborated" {class: data}
+}
+
+frame.post -> frame.llm: {style.stroke: "#5a6b85"; style.stroke-width: 2}
+frame.llm -> frame.claim: "has_claim = true" {style.stroke: "#2f7a3d"; style.stroke-width: 2}
+frame.llm -> frame.opinion: "has_claim = false" {style.stroke: "#5a6b85"; style.stroke-width: 2}

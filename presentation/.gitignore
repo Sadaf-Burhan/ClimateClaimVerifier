@@ -1,0 +1,6 @@
+# Reveal.js and the static server are restored by `npm install`.
+node_modules/
+package-lock.json
+
+# The rendered .svg files ARE committed (they're the deck's content and must
+# work without a D2 install). Re-render them with `npm run diagrams`.

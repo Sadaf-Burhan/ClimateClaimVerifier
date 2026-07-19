@@ -1,0 +1,30 @@
+<section>
+  <p class="eyebrow w5">What didn't work — and the honest limits</p>
+  <h2>Three walls I hit, and what each one taught</h2>
+
+  <div class="split">
+    <div>
+      <p class="mini"><strong>1 · A LoRA adapter couldn't buy precision.</strong> QLoRA (rank 8, Unsloth; 26 boundary cases + a qwen2.5:7b teacher), class balance swept as a hyperparameter:</p>
+      <table>
+        <thead><tr><th>Config</th><th>recall</th><th>precision</th></tr></thead>
+        <tbody>
+          <tr class="win"><td>Base, single-post <span class="pill win">shipped</span></td><td>0.938</td><td>0.703</td></tr>
+          <tr class="dead"><td>Adapter · 26% claim</td><td>0.812</td><td>0.951</td></tr>
+          <tr class="dead"><td>Adapter · 40% claim</td><td>0.854</td><td>0.788</td></tr>
+          <tr class="dead"><td>Adapter · 50% claim</td><td>0.958</td><td>0.742</td></tr>
+        </tbody>
+      </table>
+      <p class="mini"><strong>No ratio clears recall ≥ 0.90 <em>and</em> precision ≥ 0.85 at once.</strong> A real frontier, not label noise → adapter ships <span class="pill dead">disabled</span>, base stays recall-first. The failure has a shape, and the shape is the finding.</p>
+    </div>
+    <div>
+      <p class="mini"><strong>2 · Embeddings alone can't corroborate.</strong> Dense similarity conflates <em>topic</em> with <em>truth</em>: a HAARP conspiracy post scores <strong>0.62</strong> against real weather news — vocabulary overlap, not evidence. So the verdict can only ever say <em>"partial,"</em> never <em>"corroborated"</em> — proximity is a relevance signal, not a fact-check.</p>
+      <hr class="rule" />
+      <p class="mini"><strong>3 · The corpus is headline-only.</strong> GDELT gives <em>titles</em>, not article bodies. The fix for wall #2 — an LLM re-rank / verification pass — earns its keep on full passages; over bare headlines it reads almost the same tokens the bi-encoder already saw, so it wasn't worth shipping. Event-level confirmation would need <strong>full-text fetch + re-rank</strong> — deferred, not pretended.</p>
+      <p class="takeaway flag"><strong>Together these are exactly why the system reports signals, not verdicts</strong> — and they set up the next-steps slide.</p>
+    </div>
+  </div>
+
+  <aside class="notes">
+    <p><strong>~1 min — the reflection / tradeoffs beat.</strong> Three honest walls. (1) LoRA: I tried to buy precision and the table shows I couldn't clear both gates — so I shipped it disabled, and that negative result is real evidence, not a gap I'm hiding. (2) Embeddings conflate topic with truth (HAARP 0.62), so I never claim "corroborated." (3) The deeper cause: headline-only GDELT means a re-ranker has little extra signal to exploit — the honest bottleneck. All three are why the whole system is signals-not-verdicts, and they hand straight off to the future-work slide.</p>
+  </aside>
+</section>

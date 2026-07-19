@@ -1,0 +1,30 @@
+# Week 5 — LoRA adapters. A precision-targeted QLoRA that produced a clean negative
+# result: built, measured, shipped DISABLED. The full reasoning — Option B, hybrid
+# labels, class-balance-as-a-knob, the frontier, and the recall-first ship decision.
+# 3x2 grid, boustrophedon flow, so it stays compact and readable.
+# Render: d2 --layout=dagre --theme=0 05-week5-lora.d2 05-week5-lora.svg
+
+...@_theme
+
+frame: "" {
+  grid-rows: 2
+  grid-columns: 3
+  horizontal-gap: 70
+  vertical-gap: 58
+  style.fill: transparent
+  style.stroke: transparent
+
+  # order: option, data, sweep, why, decision, verdict  (snakes down then left)
+  option: "① Option B — target PRECISION\nprecision ~0.70 was the open problem\n(a prompt rule alone: prec 0.94 but recall 0.69)" {class: llm}
+  data: "② Hybrid labels · no leakage (in_train_set)\n26 hand-labelled boundary examples\n+ qwen2.5:7b teacher for the bulk\n(rejected gemma2:2b, gemma4 OOM on T4)" {class: llm}
+  sweep: "③ Class balance = the recall/precision dial\nswept as a hyperparameter\n26% → rec 0.812 · prec 0.951\n40% → rec 0.854 · prec 0.788\n50% → rec 0.958 · prec 0.742" {class: dead}
+  why: "⑥ Why that's fine — recall-first\nan opinion mis-called a claim drops out\ndownstream when GDELT evidence\ndoesn't corroborate it" {class: win}
+  decision: "⑤ Ship the recall-first BASE (0.938)\nadapter demo-only · Base-vs-Adapter tab" {class: win}
+  verdict: "④ No ratio cleared BOTH gates\n(recall ≥0.90 AND precision ≥0.85)\na real frontier — not label noise" {class: flag}
+}
+
+frame.option -> frame.data: {style.stroke: "#5b53b8"; style.stroke-width: 2}
+frame.data -> frame.sweep: {style.stroke: "#5b53b8"; style.stroke-width: 2}
+frame.sweep -> frame.verdict: {style.stroke: "#b3261e"; style.stroke-width: 2}
+frame.verdict -> frame.decision: {style.stroke: "#2f7a3d"; style.stroke-width: 3}
+frame.decision -> frame.why: {style.stroke: "#2f7a3d"; style.stroke-width: 2}

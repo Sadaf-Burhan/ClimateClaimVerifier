@@ -1,0 +1,62 @@
+/* ClimateClaimVerifier — CONDENSED deck (v2) additions.
+ * Loaded ONLY by index-v2.html, layered on top of theme.css.
+ * The original deck (index.html + theme.css) is untouched by this file. */
+
+/* Tighter two-column than .cols (used by the "what didn't work" slide). */
+.split { display: flex; gap: 1.3em; align-items: flex-start; }
+.split > * { flex: 1; min-width: 0; }
+.mini { font-size: 0.5em; color: var(--ink-soft); line-height: 1.5; margin: 0.3em 0; }
+.mini strong { color: var(--ink); }
+.mini em { color: var(--ink-faint); }
+
+/* ---- architecture map (v2-architecture.html) --------------------------------
+ * Vivid, colour-filled boxes in bands. Sequential steps are joined by → ,
+ * a parallel step branches with ↳ , and bands are joined by a bold ▼ .
+ * A "dull" dashed band marks the Colab-GPU stages. Clicking walks the
+ * overlaid detail cards below. */
+.arch { display: flex; flex-direction: column; gap: 1px; margin: 0.05em 0 0; }
+.band { border-radius: 10px; padding: 5px 9px 8px; }
+.band > .bl { font-size: 0.32em; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 700; color: var(--ink-faint); margin: 0 0 5px 2px; }
+.band.gpu { background: #f2f4f7; border: 1.5px dashed #b7bcc7; }
+.band.gpu > .bl { color: #6d7480; }
+
+.arow { display: flex; align-items: stretch; }
+.seq { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; color: var(--ink-faint); font-size: 0.6em; font-weight: 700; padding: 0 6px; }
+
+.abox { flex: 1 1 0; min-width: 0; border: 2px solid var(--ink-faint); border-radius: 10px; padding: 9px 12px; background: #fff; position: relative; transition: transform .18s ease, box-shadow .18s ease, filter .18s ease; }
+/* highlighted while its detail card is open (toggled by deck-v2.js) */
+.abox.hot { transform: scale(1.045); box-shadow: 0 9px 26px rgba(20, 25, 40, .24); filter: saturate(1.15); z-index: 3; }
+.abox:not(.hot) { filter: none; }
+.arch.dimmed .abox:not(.hot) { opacity: 0.45; transition: opacity .18s ease; }
+.abox .h { display: flex; align-items: center; gap: 0.5em; }
+.abox .num { font-size: 0.32em; font-weight: 800; color: #fff; background: var(--ink-faint); border-radius: 999px; min-width: 1.75em; height: 1.75em; display: inline-flex; align-items: center; justify-content: center; }
+.abox .t { font-weight: 700; font-size: 0.56em; line-height: 1.1; }
+.abox .s { font-size: 0.36em; color: var(--ink-soft); line-height: 1.38; margin-top: 4px; }
+
+/* stage colours: coloured border + tinted fill + coloured title + coloured badge */
+.abox.data   { border-color: #5a6b85; background: #eef1f5; } .abox.data .t   { color: #3f4a5e; } .abox.data .num   { background: #5a6b85; }
+.abox.llm    { border-color: #5b53b8; background: #eeecfa; } .abox.llm .t    { color: #4a43a0; } .abox.llm .num    { background: #5b53b8; }
+.abox.vec    { border-color: #1e8a80; background: #e4f4f1; } .abox.vec .t    { color: #15665f; } .abox.vec .num    { background: #1e8a80; }
+.abox.vision { border-color: #c07d19; background: #faf1e1; } .abox.vision .t { color: #935f0e; } .abox.vision .num { background: #c07d19; }
+.abox.reader { border-color: #2f7a3d; background: #e7f3ea; } .abox.reader .t { color: #235c2e; } .abox.reader .num { background: #2f7a3d; }
+
+.adown { text-align: center; color: var(--ink-faint); font-size: 0.6em; line-height: 0.85; margin: 2px 0; font-weight: 700; }
+
+/* parallel branch: an offset row joined with a corner connector */
+.parallel { display: flex; align-items: stretch; margin-top: 7px; }
+.parallel .brk { flex: 0 0 auto; display: flex; align-items: center; color: #c07d19; font-size: 0.42em; font-weight: 700; letter-spacing: 0.04em; padding: 0 9px 0 3px; }
+
+/* Overlaid detail cards — a persistent hint sits behind; each card is a
+ * fade-in-then-out fragment absolutely filling the band, so one shows at a time. */
+.detail { position: relative; height: 150px; margin-top: 8px; }
+.detail .hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--ink-faint); font-size: 0.55em; border: 1.5px dashed var(--rule); border-radius: 10px; }
+.dcard { position: absolute; inset: 0; border: 1.5px solid var(--rule); border-left: 6px solid var(--ink-faint); border-radius: 10px; padding: 9px 16px; background: #fcfcfd; overflow: auto; }
+.dcard .dh { font-size: 0.56em; font-weight: 700; margin: 0 0 0.3em; }
+.dcard .dh .n { color: #fff; background: var(--ink-faint); border-radius: 999px; padding: 0.05em 0.55em; font-weight: 800; margin-right: 0.5em; font-size: 0.85em; }
+.dcard p { font-size: 0.44em; line-height: 1.5; color: var(--ink-soft); margin: 0.2em 0; }
+.dcard p strong { color: var(--ink); }
+.dcard.data   { border-left-color: #5a6b85; } .dcard.data .dh .n   { background: #5a6b85; }
+.dcard.llm    { border-left-color: #5b53b8; } .dcard.llm .dh .n    { background: #5b53b8; }
+.dcard.vec    { border-left-color: #1e8a80; } .dcard.vec .dh .n    { background: #1e8a80; }
+.dcard.vision { border-left-color: #c07d19; } .dcard.vision .dh .n { background: #c07d19; }
+.dcard.reader { border-left-color: #2f7a3d; } .dcard.reader .dh .n { background: #2f7a3d; }

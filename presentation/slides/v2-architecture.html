@@ -1,0 +1,92 @@
+<section>
+  <p class="eyebrow w3">How Climate Scanner works · architecture</p>
+  <h2>The system, layer by layer — click to open each</h2>
+
+  <div class="arch">
+    <!-- INGEST (local, daily) -->
+    <div class="band">
+      <div class="bl">① Local · daily, every 24h</div>
+      <div class="arow">
+        <div class="abox data" data-box="1"><div class="h"><span class="num">1</span><span class="t">Ingestion</span></div>
+          <div class="s">Bluesky (atproto) + GDELT headlines · topic filter · posts &gt;14d dropped · SQLite&nbsp;+&nbsp;ChromaDB</div></div>
+      </div>
+    </div>
+    <div class="adown">▼</div>
+
+    <!-- COLAB GPU batch pass -->
+    <div class="band gpu">
+      <div class="bl">② the batch pass · runs on the Colab GPU · 2–3× / week</div>
+      <div class="arow">
+        <div class="abox llm" data-box="2"><div class="h"><span class="num">2</span><span class="t">Classify</span></div><div class="s">claim vs opinion · qwen2.5:3b</div></div>
+        <div class="seq">→</div>
+        <div class="abox vec" data-box="3"><div class="h"><span class="num">3</span><span class="t">Embed &amp; index</span></div><div class="s">all-MiniLM → ChromaDB</div></div>
+        <div class="seq">→</div>
+        <div class="abox reader" data-box="4"><div class="h"><span class="num">4</span><span class="t">Evaluate</span></div><div class="s">gold + dynamic</div></div>
+        <div class="seq">→</div>
+        <div class="abox vision" data-box="5"><div class="h"><span class="num">5</span><span class="t">Image eval</span></div><div class="s">frozen image set</div></div>
+        <div class="seq">→</div>
+        <div class="abox data" data-box="6"><div class="h"><span class="num">6</span><span class="t">Maintain</span></div><div class="s">health + drift log</div></div>
+      </div>
+    </div>
+    <div class="adown">▼</div>
+
+    <!-- VISION: two image paths, in parallel -->
+    <div class="band">
+      <div class="bl">③ Vision · qwen2.5vl:7b · two image paths, in parallel</div>
+      <div class="arow">
+        <div class="abox vision" data-box="7"><div class="h"><span class="num">7</span><span class="t">FP image scan</span></div><div class="s">cartoon-vs-real on edge-case Bluesky posts → recover precision · batch/GPU</div></div>
+        <div class="seq">∥</div>
+        <div class="abox vision" data-box="8"><div class="h"><span class="num">8</span><span class="t">Image-modality input</span></div><div class="s">uploaded screenshot → extract_from_image · <em>lower-confidence</em> · live</div></div>
+      </div>
+    </div>
+    <div class="adown">▼</div>
+
+    <!-- SERVE (local, live app) -->
+    <div class="band">
+      <div class="bl">④ Local · live app, per query</div>
+      <div class="arow">
+        <div class="abox vec" data-box="9"><div class="h"><span class="num">9</span><span class="t">Retriever · RAG</span></div><div class="s">embed post (claim OR opinion) → cosine → region-aware top-5</div></div>
+        <div class="seq">→</div>
+        <div class="abox reader" data-box="10"><div class="h"><span class="num">10</span><span class="t">Report formatter</span></div><div class="s">evidence · sources · trust signals · red flags · no verdict</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="detail">
+    <div class="hint">▸ click through to open each layer's decisions &amp; results</div>
+    <div class="dcard data fragment fade-in-then-out" data-fragment-index="1" data-box-ref="1"><p class="dh"><span class="n">1</span>Ingestion — local, every 24h</p>
+      <p><strong>Bluesky via <code>atproto</code></strong> (<code>search_posts</code>) + <strong>GDELT</strong> news <strong>headlines only</strong> (titles), by keyword. A pure-Python <strong>topic filter</strong> (non-LLM) keeps only North-American extreme-climate content.</p>
+      <p>Bluesky posts <strong>older than 14 days are deleted</strong> (+ an availability sweep for author-deleted posts). GDELT is bounded separately (≤45d). <strong>SQLite</strong> holds every post + the classifications; <strong>ChromaDB</strong> holds only the GDELT evidence index.</p></div>
+    <div class="dcard llm fragment fade-in-then-out" data-fragment-index="2" data-box-ref="2"><p class="dh"><span class="n">2</span>Classify — the only LLM decision</p>
+      <p><strong>qwen2.5:3b</strong>, temperature <strong>0</strong>, <strong>single-post</strong> (batch=1 → recall 0.938 vs ~0.75 batched — the biggest recall win was a config change, not a bigger model).</p>
+      <p><strong>Prompt v3:</strong> persona + claim/opinion definitions in the <em>system</em> role; <strong>8 few-shot examples + JSON format</strong> in the user message; a <code>thought</code> field placed <em>first</em> so it reasons before committing. Baked-in rule: <em>"'no evidence provided' is never a reason to call something an opinion."</em> Output <code>{has_claim, reason}</code>.</p></div>
+    <div class="dcard vec fragment fade-in-then-out" data-fragment-index="3" data-box-ref="3"><p class="dh"><span class="n">3</span>Embed &amp; index — build the RAG store</p>
+      <p><strong>all-MiniLM-L6-v2</strong> (384-dim). Chosen on a domain-pair eval over gte-small (flagged everything similar), mpnet (768-dim overkill), nomic (long-context we don't need) — <strong>separation 0.43</strong> (similar 0.64 / dissimilar 0.21). Short text → semantic similarity, not long context.</p>
+      <p>Embeds the <strong>GDELT corpus into ChromaDB</strong> — the RAG index — with <strong>location folded into each document</strong> so same-region news ranks higher.</p></div>
+    <div class="dcard reader fragment fade-in-then-out" data-fragment-index="4" data-box-ref="4"><p class="dh"><span class="n">4</span>Evaluate — two sets, on purpose</p>
+      <p><strong>Gold</strong> = frozen 100 posts (48 claim / 52 opinion), <em>never</em> relabelled → catches <strong>regression</strong>. <strong>Dynamic</strong> = grows from admin relabels → catches <strong>concept drift</strong>.</p>
+      <p><strong>Leak-free</strong> via <code>in_eval_set</code> / <code>in_train_set</code> columns (eval posts excluded from few-shot &amp; the RAG index). Every run appends to <code>eval_history.jsonl</code>, stamped with model digest + runtime, so a move is a signal, not noise.</p></div>
+    <div class="dcard vision fragment fade-in-then-out" data-fragment-index="5" data-box-ref="5"><p class="dh"><span class="n">5</span>Image eval — the multimodal path</p>
+      <p>A frozen <strong>image gold set (n=16)</strong> scores the image-gate + classify path — mean claim-text similarity <strong>0.846</strong>.</p>
+      <p><strong>Purpose:</strong> confirm the screenshot/vision entry doesn't regress the text pipeline — the image carries the claim, the text stays whatever it is.</p></div>
+    <div class="dcard data fragment fade-in-then-out" data-fragment-index="6" data-box-ref="6"><p class="dh"><span class="n">6</span>Maintain — self-healing + monitoring</p>
+      <p><code>apply_overrides</code> replays the git-tracked <code>admin_overrides.jsonl</code> onto the labels; <code>apply_provenance_labels</code> stamps verbatim-headline posts to CLAIM.</p>
+      <p>Per-stage heartbeats to <code>health.json</code> → 🟢🟡🔴 chips in the app. DB flags written back: <code>has_claim</code>, <code>admin_label</code>, <code>vision_signal</code>. Historical evals appended to the drift log.</p></div>
+    <div class="dcard vision fragment fade-in-then-out" data-fragment-index="7" data-box-ref="7"><p class="dh"><span class="n">7</span>FP image scan — precision recovery (parallel)</p>
+      <p><strong>qwen2.5vl:7b</strong> on edge-case posts only: <code>has_image &amp; has_claim &amp; bluesky</code>, minus official / credible-cited. Decides <strong>image type, not truth</strong>.</p>
+      <p>A <strong>real photo depicting the claim → precision save</strong> (clears the red flag); a <strong>meme / cartoon / AI-suspected → reinforces</strong> it. A documented ~1% supplement, not the workhorse.</p></div>
+    <div class="dcard vision fragment fade-in-then-out" data-fragment-index="8" data-box-ref="8"><p class="dh"><span class="n">8</span>Image-modality input — off-platform (parallel)</p>
+      <p>User uploads a <strong>screenshot</strong> of a Facebook / X / Instagram post. <code>extract_from_image</code> (<strong>qwen2.5vl:7b</strong>, 9-field schema) OCRs the claim, infers the platform from branding, reads visible engagement — <strong>transcribe / infer / null, never guess</strong>.</p>
+      <p>A thin adapter feeds the <em>same</em> assessment pipeline as <code>source=uploaded_screenshot</code>. Reaches where misinformation actually lives — but a screenshot strips the follower/verification data we score on and adds lossy OCR, so it's <strong>flagged a lower-confidence signal, by design</strong>.</p></div>
+    <div class="dcard vec fragment fade-in-then-out" data-fragment-index="9" data-box-ref="9"><p class="dh"><span class="n">9</span>Retriever · RAG — the corroboration signal</p>
+      <p>At query time <strong>every assessed post — claim OR opinion — is embedded</strong> (<code>with_location</code>) and cosine-matched against the GDELT index; region-aware <strong>top-5</strong>. Opinions are retrieved too — that's what powers the "🔎 possibly a missed claim" nomination.</p>
+      <p>Verdict = <strong>proximity only</strong>: REPORTED / TOPIC-MATCH / NO-MATCH. A strong match reads <em>"partial," never "corroborated"</em> — topic overlap isn't event confirmation.</p></div>
+    <div class="dcard reader fragment fade-in-then-out" data-fragment-index="10" data-box-ref="10"><p class="dh"><span class="n">10</span>Report formatter — reader signals</p>
+      <p><code>build_reader_signal</code> assembles the reader view: <strong>evidence proximity + nearest sources</strong>, <strong>trust signals</strong> (official / self-cite / reshared-official / vision), the <strong>reach-vs-support red flag</strong>, and reframes (forecast / eyewitness).</p>
+      <p><strong>No truth verdict, no credibility score</strong> — the reader draws the conclusion.</p></div>
+  </div>
+
+  <aside class="notes">
+    <p><strong>~2 min — the core pipeline segment.</strong> Four bands top to bottom: ① ingestion (local, daily); ② the Colab-GPU batch pass (classify → embed/index → eval → image-eval → maintain); ③ the vision layer — two image paths in <em>parallel</em> (FP scan for precision recovery, batch; screenshot input, live); ④ the live app (retrieve → report). Note the image layer is a parallel branch, not a step that feeds the retriever. Click each numbered box to open its card. Land two things: (1) the LLM's only job is classify — retrieval + rules do the rest; (2) opinions get embedded &amp; retrieved too, which is how we catch a claim the classifier missed. Open the 3–4 cards that matter for your audience, not all ten.</p>
+  </aside>
+</section>

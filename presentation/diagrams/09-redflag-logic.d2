@@ -1,0 +1,30 @@
+# The red flag — an 8-condition AND gate. Every term guards a real false-flag mode.
+# Conditions in a 4x2 grid (wide, not tall) feeding one AND gate.
+# Render: d2 --layout=dagre --theme=0 09-redflag-logic.d2 09-redflag-logic.svg
+
+...@_theme
+
+direction: down
+
+conditions: "Eight conditions — ALL must hold" {
+  grid-rows: 2
+  grid-columns: 4
+  horizontal-gap: 45
+  vertical-gap: 40
+
+  c1: "reach ≥ 50\nengagements" {class: flag}
+  c2: "no corroboration\nfound" {class: flag}
+  c3: "is a social\npost" {class: reader}
+  c4: "author not\nofficial" {class: reader}
+  c5: "cites no\ncredible source" {class: reader}
+  c6: "no relayed\nofficial link" {class: reader}
+  c7: "no supporting\nreal photo" {class: reader}
+  c8: "not forecast\nor eyewitness" {class: reader}
+}
+
+andgate: "ALL EIGHT hold" {class: flag; shape: diamond}
+
+flag: "RED FLAG — 'spreading widely; no published news reports\nthis specific event; unverified account; no source linked'\nsuggestive, never accusatory" {class: flag}
+
+conditions -> andgate: {style.stroke: "#b3261e"; style.stroke-width: 2}
+andgate -> flag: {style.stroke: "#b3261e"; style.stroke-width: 3}

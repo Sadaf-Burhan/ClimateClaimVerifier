@@ -1,0 +1,65 @@
+# ClimateClaimVerifier architecture — the user's Eraser layout, top-to-bottom.
+# Rendered full-size and shown in a SCROLLABLE pane on the slide (no shrink-to-fit),
+# so the vertical flow stays exactly as designed. No function names, no LoRA.
+# Render: d2 --layout=dagre --theme=0 08-full-system.d2 08-full-system.svg
+
+...@_theme
+
+classes: {
+  esrc:    { style: { fill: "#eef4fb"; stroke: "#4a72b0"; font-color: "#173056"; stroke-width: 2; border-radius: 10 } }
+  estep:   { style: { fill: "#fce8cf"; stroke: "#c07d19"; font-color: "#5c3a05"; stroke-width: 2; border-radius: 10 } }
+  edb:     { style: { fill: "#dbefdc"; stroke: "#2f7a3d"; font-color: "#14401d"; stroke-width: 2 } }
+  eclass:  { style: { fill: "#ece5f6"; stroke: "#6a4fb3"; font-color: "#2a1f52"; stroke-width: 2; border-radius: 10 } }
+  eread:   { style: { fill: "#e3eefb"; stroke: "#4a72b0"; font-color: "#12365e"; stroke-width: 2; border-radius: 10 } }
+  eassess: { style: { fill: "#fbf4cd"; stroke: "#b59a2a"; font-color: "#5c4a05"; stroke-width: 2; border-radius: 10 } }
+  ereport: { style: { fill: "#fbe4e6"; stroke: "#b3261e"; font-color: "#5c1310"; stroke-width: 2; border-radius: 10 } }
+}
+
+direction: down
+
+sources: "Data Sources" {
+  grid-columns: 2
+  style.fill: "#f5f9fd"
+  style.stroke: "#9db6d6"
+  bsky: "Bluesky posts" {class: esrc}
+  gdelt: "GDELT climate articles" {class: esrc}
+}
+
+ingest: "Ingestion Pipeline  ·  local · every 24 h" {
+  grid-rows: 1
+  style.fill: "#fdf7ee"
+  style.stroke: "#e0b878"
+  collect: "Collect" {class: estep}
+  filter: "Filter\n(non-LLM)" {class: estep}
+  normalize: "Normalize" {class: estep}
+  embed: "Embed" {class: estep}
+  store: "Store" {class: estep}
+}
+
+shared: "Shared Data Layer" {
+  grid-columns: 2
+  style.fill: "#eff7f0"
+  style.stroke: "#a6cfab"
+  sqlite: "SQLite\nPosts · Metadata · Labels" {class: edb; shape: cylinder}
+  chroma: "ChromaDB\nEvidence · Semantic Search" {class: edb; shape: cylinder}
+}
+
+engines: "" {
+  grid-columns: 2
+  style.fill: transparent
+  style.stroke: transparent
+  classify: "AI Classification Engine · Colab GPU\n• Claim detection\n• Image understanding\n• Maintenance + admin relabel" {class: eclass}
+  reader: "Reader Application\nInput:\n• Bluesky link\n• Post from the feed\n• Screenshot (off-platform)" {class: eread}
+}
+
+assess: "Claim Assessment Engine\n• Evidence retrieval\n• Source corroboration\n• Trust signals\n• Red-flag detection" {class: eassess}
+
+report: "User Report\nSupporting evidence · Relevant sources\nTrust signals · Potential red flags\n\nNo truth verdict" {class: ereport; shape: page}
+
+sources -> ingest: {style.stroke: "#5a6b85"; style.stroke-width: 2}
+ingest -> shared: {style.stroke: "#5a6b85"; style.stroke-width: 2}
+shared -> engines.classify: {style.stroke: "#6a4fb3"; style.stroke-width: 2}
+shared -> engines.reader: {style.stroke: "#4a72b0"; style.stroke-width: 2}
+engines.classify -> assess: {style.stroke: "#b59a2a"; style.stroke-width: 2}
+engines.reader -> assess: {style.stroke: "#b59a2a"; style.stroke-width: 2}
+assess -> report: {style.stroke: "#b3261e"; style.stroke-width: 3}

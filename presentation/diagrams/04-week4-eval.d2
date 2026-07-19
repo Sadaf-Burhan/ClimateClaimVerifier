@@ -1,0 +1,30 @@
+# Week 4 — Prompt tuning & evaluation. The full week: two improvements (Colab GPU
+# compute + prompt v3) then a measurement reckoning (leakage + batch drift) whose
+# fix (leak-free single-post) was only affordable BECAUSE of the GPU move.
+# 3x2 grid, boustrophedon flow, so it stays compact and readable.
+# Render: d2 --layout=dagre --theme=0 04-week4-eval.d2 04-week4-eval.svg
+
+...@_theme
+
+frame: "" {
+  grid-rows: 2
+  grid-columns: 3
+  horizontal-gap: 75
+  vertical-gap: 60
+  style.fill: transparent
+  style.stroke: transparent
+
+  # order: compute, prompt, reckon, note, decision, fix  (snakes down then left)
+  compute: "① COMPUTE → Colab T4 GPU\nexport → classify on GPU → import\ndramatic speedup (ingestion stays local)" {class: vec}
+  prompt: "② PROMPT v3\nsystem: persona + CLAIM/OPINION defs\nuser: 8 few-shot (4+4) + CoT 'thought'\nrecall 0.792 → 0.833  ·  8 beat 10" {class: llm}
+  reckon: "③ EVALUATION GOT HONEST\nleakage: 6 of 8 few-shot were eval posts\nbatch-16 drifted the 3B model" {class: flag}
+  note: "the biggest win was a config line,\nnot a bigger model" {class: note}
+  decision: "⑤ recall met without fine-tuning\n→ precision ~0.69 is the real problem\n→ Week 5" {class: win}
+  fix: "④ leak-free + SINGLE-POST\nrecall → 0.938\n(only affordable on the GPU)" {class: win}
+}
+
+frame.compute -> frame.prompt: {style.stroke: "#5a6b85"; style.stroke-width: 2}
+frame.prompt -> frame.reckon: {style.stroke: "#5a6b85"; style.stroke-width: 2}
+frame.reckon -> frame.fix: {style.stroke: "#b3261e"; style.stroke-width: 2}
+frame.fix -> frame.decision: {style.stroke: "#2f7a3d"; style.stroke-width: 3}
+frame.compute -> frame.fix: "GPU makes single-post affordable" {style.stroke-dash: 4; style.stroke: "#1e8a80"}

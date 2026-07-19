@@ -1,0 +1,98 @@
+# Shared visual language for every ClimateClaimVerifier diagram.
+# Imported by each diagram with:  ...@_theme
+#
+# Colour = stage type, consistently across all 11 diagrams:
+#   data    (slate)  — sources, storage, corpora
+#   llm     (indigo) — anything that calls a language model
+#   vec     (teal)   — embedding / vector retrieval
+#   vision  (amber)  — the multimodal path
+#   reader  (green)  — what the reader is shown
+#   flag    (red)    — the red flag
+#   dead    (grey, dashed) — built, measured, deliberately NOT shipped
+#   note    (plain)  — annotation, no border
+
+classes: {
+  data: {
+    style: {
+      fill: "#e8edf4"
+      stroke: "#5a6b85"
+      font-color: "#1f2937"
+      stroke-width: 2
+      border-radius: 6
+    }
+  }
+  llm: {
+    style: {
+      fill: "#e5e3f8"
+      stroke: "#5b53b8"
+      font-color: "#241f5c"
+      stroke-width: 2
+      border-radius: 6
+    }
+  }
+  vec: {
+    style: {
+      fill: "#d9f0ee"
+      stroke: "#1e8a80"
+      font-color: "#0d3f3a"
+      stroke-width: 2
+      border-radius: 6
+    }
+  }
+  vision: {
+    style: {
+      fill: "#fdeed3"
+      stroke: "#c07d19"
+      font-color: "#5c3a05"
+      stroke-width: 2
+      border-radius: 6
+    }
+  }
+  reader: {
+    style: {
+      fill: "#dff0e0"
+      stroke: "#2f7a3d"
+      font-color: "#14401d"
+      stroke-width: 2
+      border-radius: 6
+    }
+  }
+  flag: {
+    style: {
+      fill: "#fbdedb"
+      stroke: "#b3261e"
+      font-color: "#5c1310"
+      stroke-width: 2
+      border-radius: 6
+    }
+  }
+  dead: {
+    style: {
+      fill: "#f0f0f0"
+      stroke: "#9aa0a6"
+      font-color: "#5f6368"
+      stroke-width: 2
+      stroke-dash: 4
+      border-radius: 6
+    }
+  }
+  note: {
+    style: {
+      fill: "transparent"
+      stroke: "transparent"
+      font-color: "#5f6368"
+      font-size: 15
+      italic: true
+    }
+  }
+  win: {
+    style: {
+      fill: "#dff0e0"
+      stroke: "#2f7a3d"
+      font-color: "#14401d"
+      stroke-width: 3
+      border-radius: 6
+      bold: true
+    }
+  }
+}

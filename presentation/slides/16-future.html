@@ -1,0 +1,46 @@
+<section>
+  <p class="eyebrow w8">Beyond the capstone</p>
+  <h2>Future Work</h2>
+  <ul class="future-list">
+    <li class="fragment">
+      <strong>Judge / Arbiter Agent</strong>
+      <span class="d">Resolve conflicting multimodal predictions (e.g. Text = OPINION,
+      Image = CLAIM) using evidence-based arbitration.</span>
+    </li>
+    <li class="fragment">
+      <strong>Agentic Evidence Retrieval</strong>
+      <span class="d">Retrieve and rerank full article content to verify whether cited
+      sources support a claim.</span>
+      <span class="d challenge"><b>Challenge:</b> reliable web parsing remains difficult
+      due to bot protection and dynamically rendered websites.</span>
+    </li>
+    <li class="fragment">
+      <strong>Source Resolution</strong>
+      <span class="d">Map outlet names (e.g. The New York Times) to trusted domains and
+      expand shortened URLs to improve source attribution.</span>
+    </li>
+    <li class="fragment">
+      <strong>Retrieval Quality Evaluation</strong>
+      <span class="d">Benchmark the RAG evidence layer using relevance metrics (e.g.
+      Precision@K, Recall@K) to continuously monitor retrieval performance.</span>
+    </li>
+    <li class="fragment">
+      <strong>Vision Model Re-evaluation</strong>
+      <span class="d">Reassess the vision pipeline as more image-based claims are
+      collected to determine whether its role should expand beyond its current ~1%
+      contribution.</span>
+    </li>
+  </ul>
+
+  <aside class="notes">
+    <p><strong>[closing — ~30s. End on where it goes, not on a summary.]</strong></p>
+    <p>A few honest next steps. A <strong>judge agent</strong> to arbitrate when the
+    text and image paths disagree. <strong>Agentic evidence retrieval</strong> — reading
+    full article bodies to move from "topic match" to real claim support, though
+    reliable web parsing past bot walls is the hard part. Better <strong>source
+    resolution</strong> — outlet names and shortened URLs. An <strong>eval for the
+    retrieval layer</strong> itself. And <strong>re-measuring the vision model</strong>
+    as more image-claims accumulate, to see if it should do more than its current ~1%.</p>
+    <p>Eight weeks, one pipeline — and a clear map of where it grows. Thank you.</p>
+  </aside>
+</section>

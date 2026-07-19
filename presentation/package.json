@@ -1,0 +1,17 @@
+{
+  "name": "climateclaimverifier-presentation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ClimateClaimVerifier final presentation — Reveal.js slides with D2 architecture diagrams",
+  "license": "ISC",
+  "scripts": {
+    "start": "http-server . -p 8000 -c-1 -o",
+    "diagrams": "bash build-diagrams.sh"
+  },
+  "dependencies": {
+    "reveal.js": "^5.2.1"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

@@ -1,0 +1,30 @@
+# Week 3 — Transformer architecture. Two non-LLM layers (ingestion + topic filter,
+# then a ChromaDB dynamic few-shot retriever) feeding a smarter classifier, and the
+# baseline that Week 4 is measured against.
+# 3x2 grid, boustrophedon flow, so it stays compact and readable.
+# Render: d2 --layout=dagre --theme=0 03-week3-data-backbone.d2 03-week3-data-backbone.svg
+
+...@_theme
+
+frame: "" {
+  grid-rows: 2
+  grid-columns: 3
+  horizontal-gap: 75
+  vertical-gap: 60
+  style.fill: transparent
+  style.stroke: transparent
+
+  # order: ingest, filter, index, result, classify, retrieve  (snakes down then left)
+  ingest: "① INGEST\nBluesky + GDELT · keyword search\nevery 24 h · ~3,000 records" {class: data}
+  filter: "② TOPIC FILTER\nnon-LLM · pure Python\nNorth-American extreme climate" {class: data; shape: hexagon}
+  index: "③ ChromaDB INDEX\nlabeled examples · all-MiniLM\neval posts excluded → no leakage" {class: vec; shape: cylinder}
+  result: "⑥ BASELINE SET\nrecall 0.792 · fixed 8-shot\nnull hypothesis: 8 fixed examples\nmay already span a binary task" {class: win}
+  classify: "⑤ CLASSIFY (LLM here)\nqwen2.5:3b — switched from gemma2:2b\nfor recall + speed" {class: llm}
+  retrieve: "④ DYNAMIC FEW-SHOT · no LLM\ncategory × label buckets, top-2 each\n= 20 label-balanced examples\ntwo-pass backfill for sparse buckets" {class: vec}
+}
+
+frame.ingest -> frame.filter: {style.stroke: "#5a6b85"; style.stroke-width: 2}
+frame.filter -> frame.index: {style.stroke: "#5a6b85"; style.stroke-width: 2}
+frame.index -> frame.retrieve: "per query" {style.stroke: "#1e8a80"; style.stroke-width: 2}
+frame.retrieve -> frame.classify: {style.stroke: "#1e8a80"; style.stroke-width: 2}
+frame.classify -> frame.result: {style.stroke: "#2f7a3d"; style.stroke-width: 3}

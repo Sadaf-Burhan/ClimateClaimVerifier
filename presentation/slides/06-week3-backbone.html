@@ -1,0 +1,38 @@
+<section>
+  <p class="eyebrow w3">Week 3 · Transformer architecture</p>
+  <h2>Ingestion backbone + dynamic few-shot retrieval</h2>
+  <div class="diagram">
+    <img src="diagrams/03-week3-data-backbone.svg" alt="Week 3 pipeline in six stages. 1: ingest Bluesky and GDELT by keyword every 24h, ~3,000 records. 2: a non-LLM pure-Python topic filter keeps only North-American extreme-climate content. 3: labeled examples are indexed in ChromaDB with all-MiniLM embeddings, with eval posts excluded to prevent leakage. 4: a no-LLM dynamic few-shot retriever pulls top-2 per category-times-label bucket = 20 label-balanced examples, with two-pass backfill for sparse buckets. 5: the classifier (qwen2.5:3b, switched from gemma2:2b for recall and speed) runs with the retrieved few-shot. 6: this sets the baseline recall 0.792 for fixed 8-shot, with the null hypothesis that 8 fixed examples may already span a binary task." />
+  </div>
+  <p class="takeaway fragment">
+    Two <strong>non-LLM</strong> layers before the model: the ingestion + topic-filter backbone, and a
+    <strong>dynamic few-shot retriever</strong> that balances examples across <em>category and label</em> —
+    so the model learns the <em>structure</em> of a claim, not a topic shortcut. Baseline set at recall
+    <strong>0.792</strong>, with the null hypothesis openly on the table.
+  </p>
+
+  <aside class="notes">
+    <p><strong>[2:10–2:40] — ~30s. My densest week; keep it moving.</strong></p>
+    <p>In Week 3 I built two
+    layers, both with <strong>no LLM in the path</strong>.</p>
+    <p><strong>Ingestion:</strong> keyword search over Bluesky and GDELT, designed to
+    run every 24 hours. Then a pure-Python
+    <strong>topic filter</strong> keeps only North-American extreme-climate content.
+    Cheap, deterministic, and it keeps junk away from the expensive model.</p>
+    <p><strong>The real ML work</strong> is the dynamic few-shot retriever. Instead of
+    one fixed set of examples, I embed labeled posts into ChromaDB with all-MiniLM
+    and, per query, pull the top-2 from every <strong>category × label</strong> bucket
+    — 20 examples, always label-balanced. The reason: pure similarity retrieval takes
+    a topic shortcut — a wildfire query returns ten wildfire examples and the model
+    learns "wildfire equals claim" instead of the structural pattern. Stratifying
+    forces it to see the claim-versus-opinion distinction across all five domains.
+    Sparse categories get a <strong>two-pass backfill</strong> so label balance is
+    never broken. And the eval posts are excluded from the store — no leakage.</p>
+    <p>Evaluating this is what drove the <strong>model switch</strong>: gemma2:2b was
+    slow and weak on recall, so I moved to <strong>qwen2.5:3b</strong>, which set the
+    baseline — recall <strong>0.792</strong> on the 100-post eval, fixed 8-shot. The
+    open question, stated as a null hypothesis: can stratified retrieval beat eight
+    well-chosen fixed examples, especially on the hard conspiracy and sensationalist
+    categories? Week 4 answers it.</p>
+  </aside>
+</section>

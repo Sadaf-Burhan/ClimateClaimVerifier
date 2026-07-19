@@ -1,0 +1,29 @@
+# Week 6 — Semantic search & RAG -> evidence matching. The precision workhorse.
+# CCV production: region-aware RETRIEVAL carries corroboration (no LLM re-rank).
+# The verdict comes from proximity — a strong match reads "partial", never "corroborated".
+# 3x2 grid, boustrophedon flow, so it stays compact and readable.
+# Render: d2 --layout=dagre --theme=0 06-week6-rag.d2 06-week6-rag.svg
+
+...@_theme
+
+frame: "" {
+  grid-rows: 2
+  grid-columns: 3
+  horizontal-gap: 72
+  vertical-gap: 58
+  style.fill: transparent
+  style.stroke: transparent
+
+  # order: store, retrieve, problem, note, verdict, guards  (snakes down then left)
+  store: "① ChromaDB · GDELT news\nall-MiniLM · cosine\nleakage guard: eval/train excluded" {class: vec; shape: cylinder}
+  retrieve: "② Region-aware retrieval\nlocation embedded in BOTH the article\nand the query → same-region news ranks up" {class: vec}
+  problem: "③ Dense similarity ≠ corroboration\na HAARP conspiracy post scores 0.62\njust for sharing the 'weather' topic" {class: flag}
+  note: "A relevance signal,\nnever a truth verdict" {class: note}
+  verdict: "④ VERDICT from retrieval proximity\nREPORTED · TOPIC MATCH · NO MATCH\na strong match reads 'partial' —\nnever 'corroborated' (stays conservative)" {class: reader}
+  guards: "⑤ Reader signal → RED FLAG\nguarded by self-citation +\nofficial-source allowlist" {class: reader}
+}
+
+frame.store -> frame.retrieve: {style.stroke: "#1e8a80"; style.stroke-width: 2}
+frame.retrieve -> frame.problem: {style.stroke: "#1e8a80"; style.stroke-width: 2}
+frame.problem -> frame.verdict: {style.stroke: "#2f7a3d"; style.stroke-width: 3}
+frame.verdict -> frame.guards: {style.stroke: "#2f7a3d"; style.stroke-width: 3}

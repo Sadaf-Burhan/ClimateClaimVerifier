@@ -1,0 +1,22 @@
+<section>
+  <p class="eyebrow w8">The whole system · workflow</p>
+  <div class="scroll-diagram">
+    <img src="images/workflow.png" style="width: 68%;"
+         onerror="this.onerror=function(){this.onerror=null;this.src='diagrams/13-workflow.svg';};this.src='images/workflow.svg';"
+         alt="The assessment workflow, top to bottom. A user submits a post. A decision — URL, text, or screenshot? — routes to Fetch URL, Parse text, or OCR / image. All three converge into Extract claim candidates, then Retrieve similar evidence. A second decision — supporting sources found? — branches: Yes goes to Corroborate sources, No goes to Flag low confidence. Both feed Generate reader report, which produces the output: Sources, Trust Signals, and Red Flags." />
+  </div>
+  <p class="scroll-hint">↕ scroll inside the panel to follow the full flow</p>
+
+  <aside class="notes">
+    <p><strong>[right after the architecture — ~20s, or fold into the demo.]</strong></p>
+    <p>This is the workflow a single post runs through when someone checks it. They
+    submit a post, and the first branch is the input type — a Bluesky link we fetch, a
+    block of text we parse, or a screenshot we read with OCR and vision.</p>
+    <p>All three converge: we extract the claim candidates, then retrieve similar
+    evidence from the news corpus. The second decision is the important one — did we
+    find supporting sources? If yes, we corroborate against them; if no, we flag it as
+    low confidence rather than pretend.</p>
+    <p>Either way it generates the reader report — sources, trust signals, red flags —
+    and, as always, no truth verdict.</p>
+  </aside>
+</section>

@@ -1,0 +1,41 @@
+<section>
+  <p class="eyebrow w5">Week 5 · Fine-tuning with adapters</p>
+  <h2>The adapter that shipped disabled <span class="pill dead">negative result</span></h2>
+  <div class="diagram">
+    <img src="diagrams/05-week5-lora.svg" alt="Week 5 in six beats. 1: Option B — target precision (~0.70 was the open problem; a prompt rule alone hit precision 0.94 but recall 0.69, so it can't be prompt-fixed). 2: hybrid labels with no leakage via an in_train_set flag — 26 hand-labelled boundary examples plus a qwen2.5:7b teacher for the bulk, rejecting gemma2:2b and gemma4 (OOM). 3: class balance is the recall/precision dial, swept as a hyperparameter — 26% claim gives recall 0.812 precision 0.951, 40% gives 0.854/0.788, 50% gives 0.958/0.742. 4: no ratio cleared both gates (recall >= 0.90 AND precision >= 0.85) — a real frontier, not label noise. 5: ship the recall-first base at 0.938, adapter demo-only via a Base-vs-Adapter tab. 6: that's fine because recall-first — an opinion mis-called a claim drops out downstream when GDELT evidence doesn't corroborate it." />
+  </div>
+  <p class="takeaway fragment">
+    Treating <strong>class balance as a hyperparameter</strong> turned "fine-tuning didn't help" into a
+    <strong>mapped frontier</strong>: no ratio cleared recall ≥ 0.90 <em>and</em> precision ≥ 0.85 at once.
+    So the adapter ships <strong>disabled</strong> — the base's recall-first errors get filtered downstream
+    by evidence anyway. The failure has a <em>shape</em>, and that shape is the finding.
+  </p>
+
+  <aside class="notes">
+    <p><strong>[3:00–3:35] — ~35s. The best slide in the deck. Own it.</strong></p>
+    <p>Recall was solved; precision — about 0.70 — was the open problem, concentrated
+    in vague-conspiracy posts over-called as claims. I couldn't fix it with a prompt
+    rule: pushing precision that way sent it to 0.94 but collapsed recall to 0.69. So
+    I went to a precision-targeted QLoRA — <strong>Option B</strong>.</p>
+    <p><strong>The data was hybrid.</strong> The vague-versus-specific conspiracy
+    boundary is exactly where a teacher model can't be trusted, so those ~26 examples
+    are hand-labelled; the bulk came from a <strong>qwen2.5:7b</strong> teacher —
+    deliberately stronger than the 3B student, and audited. I rejected gemma2:2b — it
+    called 87% of everything a claim, contradicting its own reasons — and gemma4 ran
+    out of memory on the T4. An <code>in_train_set</code> flag keeps training data out
+    of the eval set — no leakage.</p>
+    <p>The move that made the week worth anything: I treated <strong>class balance as
+    a hyperparameter</strong> and swept it — 26, 40, 50 percent claim. At 26% precision
+    is beautiful, 0.95, but recall collapses to 0.81. At 50% recall is 0.96 and
+    precision falls to 0.74. <strong>Nothing cleared both gates.</strong> Every
+    recall-≥-0.90 point caps precision near 0.74; every precision-≥-0.85 point drops
+    recall below 0.82. That's a real frontier at this model size and data volume — not
+    label noise.</p>
+    <p><em>[click]</em> So the adapter ships <strong>disabled</strong> — a Base-versus-Adapter
+    demo tab, not the production model. And that's fine, because the architecture is
+    recall-first: an opinion the base over-calls as a claim simply drops out
+    downstream when the GDELT evidence doesn't corroborate it. Fine-tuning wasn't a
+    failed week — it proved precision isn't a model problem, which is exactly why
+    Week 6 solves it with evidence.</p>
+  </aside>
+</section>

@@ -1,0 +1,39 @@
+<section>
+  <p class="eyebrow w4">Week 4 · Prompt tuning &amp; evaluation</p>
+  <h2>Two improvements — then evaluation got honest</h2>
+  <div class="diagram">
+    <img src="diagrams/04-week4-eval.svg" alt="Week 4 in five beats. 1: compute moved to a Colab T4 GPU (export unclassified posts, classify on GPU, import back), a dramatic speedup with ingestion staying local. 2: prompt v3 puts persona and claim/opinion definitions in the system role and 8 few-shot plus a chain-of-thought thought field in the user output, lifting recall from 0.792 to 0.833 — and 8 examples beat 10. 3: evaluation got honest, surfacing two measurement bugs — 6 of 8 few-shot were eval-set posts (leakage), and batch-16 drifted the 3B model. 4: leak-free single-post inference lifted recall to 0.938, only affordable because of the GPU move. 5: recall was met without fine-tuning, leaving precision ~0.69 as the real problem for Week 5. The biggest win was a config line, not a bigger model." />
+  </div>
+  <p class="takeaway fragment">
+    Moving compute to a <strong>Colab T4 GPU</strong> didn't just speed things up — it made the
+    fix <em>affordable</em>. Prompt v3 lifted recall 0.792→0.833; then two measurement bugs
+    surfaced, and <strong>leak-free single-post</strong> inference took it to <strong>0.938</strong>.
+    The biggest win was a <strong>config change, not a bigger model</strong> — leaving precision (~0.69) as the real problem.
+  </p>
+
+  <aside class="notes">
+    <p><strong>[2:30–3:05] — ~35s. A big week; two improvements then the reckoning.</strong></p>
+    <p>Week 4 was a refactor plus two improvements. First, <strong>compute</strong>:
+    with no local GPU, classification crawled on CPU, so I moved it to a free
+    <strong>Colab T4 GPU</strong> — export the unclassified posts, classify on the
+    GPU, import the results back. Ingestion stayed local. Remember this — it pays off
+    in a second.</p>
+    <p>Second, <strong>prompt v3</strong>: task and claim/opinion definitions in the
+    system role, eight few-shot examples plus a chain-of-thought <code>thought</code>
+    field in the output. Recall went from 0.792 to <strong>0.833</strong>. Two small
+    findings: the format example has to stay in the user message — moving it to system
+    dropped recall to 0.71 — and eight examples beat ten, which made the model too
+    conservative.</p>
+    <p>Then evaluation got <strong>honest</strong> and found two bugs in the
+    measurement, not the model. <strong>Leakage</strong>: six of my eight few-shot
+    were themselves eval posts — I was showing the model the test answers, which
+    inflated the numbers. And <strong>batch drift</strong>: classifying sixteen posts
+    per call drifted the 3B model into under-calling claims.</p>
+    <p><em>[click]</em> The fix was leak-free examples plus <strong>single-post</strong>
+    inference — recall to <strong>0.938</strong>. And here's the payoff from the GPU:
+    single-post is about sixteen times more calls, which is <em>only affordable on the
+    GPU</em>. So the compute decision and the accuracy decision are the same decision.
+    The biggest recall win in the whole project was a config change, not a bigger
+    model — which left precision, about 0.69, as the real open problem for Week 5.</p>
+  </aside>
+</section>

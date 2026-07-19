@@ -1,0 +1,28 @@
+<section>
+  <p class="eyebrow w1">Week 1 : basic LLM classification</p>
+  <h2>The claim/opinion gate <span class="pill">still the front door</span></h2>
+  <div class="diagram">
+    <img src="diagrams/01-week1-classifier.svg" alt="A Bluesky post enters gemma2:2b via Ollama in JSON mode, with a fact-checker / climate-analyst persona and few-shot examples covering claim, opinion, and commentary. It outputs has_claim and a reason. Output routes to CLAIM (passes downstream) or OPINION (stored and shown, not corroborated)." />
+  </div>
+  <p class="takeaway fragment">
+    Week 1 built the gate with <strong>gemma2:2b</strong> — a persona, few-shot examples, and
+    <strong>structured JSON</strong> <code>{ has_claim, reason }</code> so every decision is auditable.
+    It's still the front door of the pipeline; the model was later upgraded to <strong>qwen2.5:3b</strong>
+    (Week 3), the few-shot hardened in Week 4.
+  </p>
+
+  <aside class="notes">
+    <p><strong>[1:30–1:50] — ~20s. Move fast.</strong></p>
+    <p>Week 1 is the front door: does this post contain a checkable factual claim,
+    yes or no? I framed it as a <strong>classification</strong> task — the
+    LLM-appropriate use — and built it on <strong>gemma2:2b</strong> via Ollama, with
+    a fact-checker persona and a few-shot set covering claim, opinion, and commentary.</p>
+    <p>The detail that mattered: <strong>structured JSON output</strong> — no parse
+    errors, and the <code>reason</code> field makes every decision auditable. And the
+    recall-first idea is seeded right here — the gate's job is to catch claims, not to
+    judge them.</p>
+    <p>This <em>stage</em> is still the front door today, but it evolved: I switched
+    the model to <strong>qwen2.5:3b</strong> in Week 3 for recall and speed, and made
+    the few-shot leak-free in Week 4. Same gate, better engine.</p>
+  </aside>
+</section>

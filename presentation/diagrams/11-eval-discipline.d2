@@ -1,0 +1,31 @@
+# Week 8 — Evaluation & beyond. Four evals + a drift log that caught a real move.
+# 2x2 grid, terse labels.
+# Render: d2 --layout=dagre --theme=0 11-eval-discipline.d2 11-eval-discipline.svg
+
+...@_theme
+
+frame: "" {
+  grid-rows: 2
+  grid-columns: 2
+  horizontal-gap: 110
+  vertical-gap: 70
+  style.fill: transparent
+  style.stroke: transparent
+
+  # order = evals, drift, lesson, caught → row2 is [lesson, caught]
+  # so drift→caught is straight down and caught→lesson points left.
+  evals: "Four evals · one per stage" {
+    direction: down
+    e1: "Classifier — recall 0.875" {class: vec}
+    e2: "Retrieval — NO eval" {class: flag}
+    e3: "Red-flag — 7/7 (n=7)" {class: vec}
+    e4: "Image — gate 1.0 (n=16)" {class: vec}
+  }
+  drift: "Drift log · eval_history.jsonl\n\nevery run stamped with\ndigest + Ollama version" {class: data; shape: page}
+  lesson: "The rule that followed\n\nnever explain a gold move\naway as noise again" {class: win}
+  caught: "What it caught\n\ngold 0.9583 → 0.875 on a\nFROZEN set · deterministic\na real regression, not noise" {class: flag}
+}
+
+frame.evals -> frame.drift: {style.stroke: "#5a6b85"}
+frame.drift -> frame.caught: {style.stroke: "#b3261e"; style.stroke-width: 3}
+frame.caught -> frame.lesson: {style.stroke: "#2f7a3d"; style.stroke-width: 3}

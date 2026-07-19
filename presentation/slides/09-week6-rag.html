@@ -1,0 +1,34 @@
+<section>
+  <p class="eyebrow w6">Week 6 · Semantic search &amp; RAG</p>
+  <h2>Topic overlap is not corroboration <span class="pill win">the precision workhorse</span></h2>
+  <div class="diagram">
+    <img src="diagrams/06-week6-rag.svg" alt="Week 6 RAG. 1: a ChromaDB store of GDELT news, embedded with all-MiniLM cosine, with a leakage guard excluding eval/train posts. 2: region-aware retrieval embeds location into both the article and the query, so same-region news ranks higher. 3: dense similarity is not corroboration — a HAARP conspiracy post scores 0.62 just for sharing the weather topic. 4: the verdict comes from retrieval proximity — REPORTED, TOPIC MATCH, or NO MATCH — where a strong match reads 'partial', never 'corroborated', so it stays conservative. 5: the reader signal and red flag, guarded by self-citation and an official-source allowlist. It is a relevance signal, never a truth verdict." />
+  </div>
+  <p class="takeaway fragment">
+    Dense similarity conflates <em>topic</em> with <em>corroboration</em> — a HAARP post scores
+    <strong>0.62</strong> on topic alone. <strong>Region-aware retrieval</strong> (location embedded in both
+    the article and the query) fixes relevance, and the verdict stays conservative — a strong match reads
+    <em>"partial," never "corroborated."</em> A relevance signal, never a truth verdict.
+  </p>
+
+  <aside class="notes">
+    <p><strong>[3:30–4:05] — ~35s. Where precision actually gets solved.</strong></p>
+    <p>Week 6 recovers precision — downstream, exactly as Week 5 predicted. I built a
+    <strong>ChromaDB store of GDELT news</strong>, embedded with all-MiniLM in cosine
+    space, carrying the same leakage guard from earlier weeks — eval and train posts
+    are excluded. For a claim, dense top-k retrieval pulls the nearest articles.</p>
+    <p>The key insight: pure dense similarity conflates <em>topic</em> with
+    <em>corroboration</em>. A HAARP conspiracy post scores <strong>0.62</strong> against
+    real weather news just for sharing the topic. That's vocabulary overlap, not
+    evidence.</p>
+    <p>The fix is <strong>region-aware retrieval</strong>. I embed <strong>location into
+    both sides</strong>, the article and the query, so same-region news ranks higher. And
+    crucially, <strong>the verdict comes from retrieval proximity</strong>: a strong match
+    reads <em>"partial,"</em> never <em>"corroborated."</em> The system deliberately never
+    claims full corroboration from a headline — it stays conservative.</p>
+    <p><em>[click]</em> Two <strong>red-flag guards</strong> close the loop: a post that
+    cites its own credible source, or comes from an official account, is never flagged.
+    Throughout, this stays a <strong>relevance signal, never a truth verdict</strong> — it
+    surfaces whether published news covers the same event, and the reader concludes.</p>
+  </aside>
+</section>

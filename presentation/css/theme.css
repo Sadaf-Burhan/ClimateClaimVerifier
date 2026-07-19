@@ -1,0 +1,357 @@
+/* ClimateClaimVerifier — presentation theme.
+ *
+ * Layered on top of reveal.js's `white` theme. Design goals:
+ *   - academic/technical, not corporate-deck
+ *   - diagrams are the content; text is scaffolding around them
+ *   - colour language matches diagrams/_theme.d2 exactly, so a stage is the
+ *     same colour on a slide as it is inside an SVG
+ *
+ * No web fonts — everything is a system stack so the deck works fully offline.
+ */
+
+:root {
+  --ink: #1f2937;
+  --ink-soft: #5f6368;
+  --ink-faint: #9aa0a6;
+  --rule: #e3e6ea;
+  --bg: #ffffff;
+
+  /* stage colours — keep in sync with diagrams/_theme.d2 */
+  --data: #5a6b85;
+  --llm: #5b53b8;
+  --vec: #1e8a80;
+  --vision: #c07d19;
+  --reader: #2f7a3d;
+  --flag: #b3261e;
+
+  --sans: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Code", "SF Mono", Consolas, "Liberation Mono", monospace;
+}
+
+.reveal {
+  font-family: var(--sans);
+  color: var(--ink);
+  font-size: 30px;
+}
+
+.reveal .slides { text-align: left; }
+
+.reveal h1,
+.reveal h2,
+.reveal h3,
+.reveal h4 {
+  font-family: var(--sans);
+  color: var(--ink);
+  text-transform: none;
+  letter-spacing: -0.02em;
+  font-weight: 650;
+  margin-bottom: 0.35em;
+  text-shadow: none;
+}
+
+.reveal h1 { font-size: 2.1em; line-height: 1.1; }
+.reveal h2 { font-size: 1.45em; }
+.reveal h3 { font-size: 1.1em; }
+
+.reveal p, .reveal li { line-height: 1.45; }
+.reveal strong { font-weight: 650; color: var(--ink); }
+.reveal em { color: var(--ink-soft); }
+.reveal code { font-family: var(--mono); font-size: 0.85em; }
+
+.reveal a { color: var(--llm); text-decoration: none; border-bottom: 1px solid var(--rule); }
+
+/* ---- slide furniture ---------------------------------------------------- */
+
+/* The small week/section marker above a slide title. */
+.eyebrow {
+  font-size: 0.5em;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 0.5em 0;
+}
+.eyebrow.w1, .eyebrow.w4 { color: var(--llm); }
+.eyebrow.w2, .eyebrow.w6 { color: var(--vec); }
+.eyebrow.w3 { color: var(--data); }
+.eyebrow.w5 { color: var(--ink-faint); }
+.eyebrow.w7 { color: var(--vision); }
+.eyebrow.w8 { color: var(--reader); }
+
+/* Diagram slides: the SVG gets the room, everything else gets out of the way. */
+.diagram {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin: 0.2em 0;
+}
+.diagram img {
+  max-width: 100%;
+  /* Fixed px, NOT vh: the deck is a scaled 1280x760 canvas, and vh resolves
+     against the real screen — on a large monitor vh overshoots and pushes the
+     takeaway off the bottom. These px values are in canvas coordinates, so the
+     layout is identical at every screen size. Budget: 760 tall total. */
+  max-height: 452px;
+  width: auto;
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+/* Diagram-only slides — no title/takeaway competing for vertical space. */
+.diagram-full img { max-height: 620px; }
+/* Near-square diagrams: a little more height so they don't shrink on width. */
+.diagram-tall img { max-height: 512px; }
+
+/* Scrollable diagram pane — for tall vertical diagrams (architecture, workflow)
+   that shouldn't be shrunk to fit. The SVG renders full-size to the pane width and
+   the pane scrolls vertically. Fixed px (canvas coords), NOT vh. */
+.scroll-diagram {
+  max-height: 632px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: #ffffff;
+  margin: 0.2em 0;
+  /* keep the scrollbar visible so it's obvious the pane scrolls */
+  scrollbar-width: thin;
+  text-align: center;
+}
+.scroll-diagram img {
+  display: block;
+  margin: 0 auto;
+  /* D2 SVGs carry no intrinsic size, so `auto` misbehaves — use an explicit width.
+     Default fills the pane; a per-slide inline width can shrink a diagram that would
+     otherwise be over-zoomed (e.g. the tall workflow). */
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: none;
+}
+
+/* Climate Scanner logo */
+.demo-logo {
+  display: block;
+  margin: 0 auto 0.4em;
+  height: 330px !important;
+  width: auto !important;
+  max-width: 55% !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+.title-logo {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  height: 104px !important;
+  width: auto !important;
+  max-width: 230px !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+.scroll-hint {
+  font-size: 0.42em;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  margin: 0.15em 0 0 2px;
+}
+
+/* The one-line "so what" that sits under a diagram. */
+.takeaway {
+  border-left: 3px solid var(--rule);
+  padding-left: 0.7em;
+  font-size: 0.62em;
+  color: var(--ink-soft);
+  margin-top: 0.6em;
+  line-height: 1.5;
+}
+.takeaway strong { color: var(--ink); }
+.takeaway.win { border-left-color: var(--reader); }
+.takeaway.flag { border-left-color: var(--flag); }
+
+/* ---- stat rows ---------------------------------------------------------- */
+
+.stats {
+  display: flex;
+  gap: 0.55em;
+  margin: 0.6em 0;
+  flex-wrap: wrap;
+}
+.stat {
+  flex: 1 1 0;
+  min-width: 150px;
+  border: 1px solid var(--rule);
+  border-top: 3px solid var(--ink-faint);
+  border-radius: 5px;
+  padding: 0.55em 0.7em;
+  background: #fcfcfd;
+}
+.stat .n {
+  font-size: 1.35em;
+  font-weight: 680;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.stat .k {
+  font-size: 0.42em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  margin-top: 0.3em;
+  font-weight: 600;
+}
+.stat .sub { font-size: 0.42em; color: var(--ink-soft); margin-top: 0.25em; line-height: 1.35; }
+
+.stat.win  { border-top-color: var(--reader); }
+.stat.miss { border-top-color: var(--flag); }
+.stat.vec  { border-top-color: var(--vec); }
+.stat.vis  { border-top-color: var(--vision); }
+.stat.llm  { border-top-color: var(--llm); }
+
+/* ---- misc --------------------------------------------------------------- */
+
+.reveal ul { margin-left: 0.5em; }
+.reveal li { margin-bottom: 0.35em; }
+
+.lede { font-size: 0.78em; color: var(--ink-soft); max-width: 22em; line-height: 1.5; }
+
+/* Future-extensions closing list — title + description(s) per item */
+.future-list { list-style: none; margin: 0.4em 0 0; max-width: 46em; }
+.future-list li {
+  margin-bottom: 0.55em;
+  padding-left: 0.85em;
+  border-left: 3px solid var(--reader);
+}
+.future-list li strong { display: block; font-size: 0.72em; color: var(--ink); font-weight: 650; }
+.future-list li .d {
+  display: block;
+  font-size: 0.55em;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  margin-top: 0.12em;
+}
+.future-list li .d.challenge { color: var(--flag); font-style: italic; margin-top: 0.15em; }
+.future-list li .d.challenge b { font-style: normal; }
+
+/* Thank-you / closing slide */
+.thankyou { text-align: center; }
+.thankyou .ty-logo { display: block; margin: 0 auto 0.35em; height: 150px !important; width: auto !important; }
+.thankyou h1 { font-size: 2.3em; margin-bottom: 0.18em; }
+.thankyou .ty-line { font-size: 0.82em; color: var(--ink-soft); margin: 0 auto 1em; }
+.contact-links { display: flex; flex-direction: column; gap: 0.5em; align-items: center; margin: 0.5em 0 0.9em; }
+.contact-links a {
+  font-size: 0.6em;
+  color: var(--llm);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.4em 1.25em;
+  text-decoration: none;
+  letter-spacing: 0.02em;
+}
+.contact-links a b { color: var(--ink); margin-right: 0.45em; }
+.thankyou .ty-name { font-size: 0.5em; color: var(--ink-faint); letter-spacing: 0.06em; }
+
+.rule { border: 0; border-top: 1px solid var(--rule); margin: 0.7em 0; }
+
+.pill {
+  display: inline-block;
+  font-size: 0.42em;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.25em 0.7em;
+  border-radius: 999px;
+  background: #f1f3f5;
+  color: var(--ink-soft);
+  vertical-align: middle;
+}
+.pill.win  { background: #dff0e0; color: #14401d; }
+.pill.flag { background: #fbdedb; color: #5c1310; }
+.pill.dead { background: #f0f0f0; color: var(--ink-soft); }
+
+/* Two-column split for text + evidence */
+.cols { display: flex; gap: 1.4em; align-items: flex-start; }
+.cols > * { flex: 1; }
+
+/* Title slide */
+.title-slide h1 { margin-bottom: 0.2em; }
+.title-slide .sub { font-size: 0.72em; color: var(--ink-soft); margin-bottom: 1.2em; }
+.title-slide .intro {
+  font-size: 0.72em;
+  color: var(--ink-soft);
+  max-width: 30em;
+  line-height: 1.5;
+  margin-bottom: 0.4em;
+}
+.title-slide .tagline {
+  font-size: 0.86em;
+  color: var(--ink-soft);
+  margin-bottom: 1.15em;
+}
+.title-slide .tagline strong { color: var(--reader); font-weight: 650; }
+.title-slide .meta { font-size: 0.5em; color: var(--ink-faint); letter-spacing: 0.04em; }
+
+/* Quote / principle callout */
+.principle {
+  font-size: 1.05em;
+  font-weight: 600;
+  line-height: 1.35;
+  border-left: 4px solid var(--reader);
+  padding-left: 0.8em;
+  margin: 0.7em 0;
+}
+.principle .attr { display: block; font-size: 0.42em; font-weight: 400; color: var(--ink-faint); margin-top: 0.6em; letter-spacing: 0.04em; }
+
+/* Compact metric glossary — define recall/precision once, deck-wide. */
+.metric-defs {
+  font-size: 0.58em;
+  color: var(--ink-soft);
+  line-height: 1.55;
+  margin-top: 0.3em;
+}
+.metric-defs .term { color: var(--ink); font-weight: 650; }
+.metric-defs .r { color: var(--reader); }
+.metric-defs .p { color: var(--flag); }
+.metric-defs em { color: var(--ink-faint); font-style: italic; }
+.metric-defs .sep { color: var(--ink-faint); margin: 0 0.7em; }
+
+/* Table — used sparingly, for the LoRA frontier only */
+.reveal table { font-size: 0.6em; border-collapse: collapse; margin: 0.5em 0; }
+.reveal table th {
+  text-align: left;
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-faint);
+  border-bottom: 2px solid var(--rule);
+  padding: 0.4em 0.9em 0.4em 0;
+  font-weight: 650;
+}
+.reveal table td {
+  border-bottom: 1px solid var(--rule);
+  padding: 0.45em 0.9em 0.45em 0;
+  font-variant-numeric: tabular-nums;
+}
+.reveal table tr.dead td { color: var(--ink-faint); }
+.reveal table tr.win td { font-weight: 650; }
+
+/* Progress bar + controls in the project's accent */
+.reveal .progress { color: var(--llm); height: 3px; }
+.reveal .controls { color: var(--ink-faint); }
+
+/* Speaker-note hint for the presenter — never rendered on the slide itself */
+.reveal aside.notes { display: none; }
+
+/* Section divider slides */
+.divider { text-align: center; }
+.divider h2 { font-size: 1.9em; }
+.divider .lede { margin: 0 auto; }
+
+@media (max-width: 900px) {
+  .cols { flex-direction: column; }
+  .stats { flex-direction: column; }
+}

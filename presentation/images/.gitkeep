@@ -1,0 +1,3 @@
+# All architecture visuals are rendered from diagrams/*.d2 into diagrams/*.svg.
+# This folder is here for the required project structure and for any future
+# raster assets (e.g. a screenshot of the live Trust Checker for the demo slide).

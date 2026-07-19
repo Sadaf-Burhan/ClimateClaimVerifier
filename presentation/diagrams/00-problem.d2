@@ -1,0 +1,31 @@
+# The problem slide. Frames the product decision that constrains every later
+# week: we are a metal detector, not a judge.
+#
+# A clean left-to-right sequence: post -> reader's 3 questions -> the fork
+# (reject the verdict/score path, build the signals path). Balanced boxes,
+# no oversized person shape. The rejected path is grey/dashed, ours is green.
+# Render: d2 --layout=dagre --theme=0 00-problem.d2 00-problem.svg
+
+...@_theme
+
+direction: right
+
+post: "A climate post goes viral\n\n'BREAKING: they're hiding the\ntruth about the wildfires.\nPROOF inside.'\n\n2,400 reposts" {
+  class: data
+}
+
+reader: "A reader — ~3 seconds\n\n1 · a claim, or an opinion?\n2 · did any news report it?\n3 · who posted it — reach? source?" {
+  class: data
+}
+
+trap: "The tempting answer\n\nan LLM that stamps TRUE / FALSE\n— or a credibility score of 0.23" {
+  class: dead
+}
+
+built: "What we built instead\n\nsurface the SIGNALS\nlink the PRIMARY SOURCES\nthe reader concludes" {
+  class: win
+}
+
+post -> reader: "3 questions" {style.stroke: "#5a6b85"; style.stroke-width: 2}
+reader -> trap: "naive\n(not implemented)" {style.stroke-dash: 4; style.stroke: "#9aa0a6"}
+reader -> built: "our design" {style.stroke: "#2f7a3d"; style.stroke-width: 3}

@@ -1,0 +1,43 @@
+# The assessment WORKFLOW — the user's Eraser flowchart, top-to-bottom.
+# Rendered full-size and shown in a SCROLLABLE pane on the slide (no shrink-to-fit).
+# Render: d2 --layout=dagre --theme=0 13-workflow.d2 13-workflow.svg
+
+...@_theme
+
+classes: {
+  wuser:   { style: { fill: "#eaf2fb"; stroke: "#4a72b0"; font-color: "#173056"; stroke-width: 2; border-radius: 10 } }
+  wdecide: { style: { fill: "#fdf0d9"; stroke: "#d9a441"; font-color: "#5c4405"; stroke-width: 2 } }
+  winput:  { style: { fill: "#ece5f6"; stroke: "#6a4fb3"; font-color: "#2a1f52"; stroke-width: 2; border-radius: 10 } }
+  wstep:   { style: { fill: "#e0f0e2"; stroke: "#3f9250"; font-color: "#14401d"; stroke-width: 2; border-radius: 10 } }
+  wflag:   { style: { fill: "#fbe1e4"; stroke: "#b3261e"; font-color: "#5c1310"; stroke-width: 2; border-radius: 10 } }
+}
+
+direction: down
+
+submit: "User submits post" {class: wuser; width: 240}
+decide: "URL, text, or screenshot?" {class: wdecide; shape: diamond}
+fetchurl: "Fetch URL" {class: winput; width: 240}
+parsetext: "Parse text" {class: winput; width: 240}
+ocr: "OCR / image" {class: winput; width: 240}
+extract: "Extract claim candidates" {class: wstep; width: 240}
+retrieve: "Retrieve similar evidence" {class: wstep; width: 240}
+found: "Supporting sources found?" {class: wdecide; shape: diamond}
+corroborate: "Corroborate sources" {class: wstep; width: 240}
+flag: "Flag low confidence" {class: wflag; width: 240}
+report: "Generate reader report" {class: wuser; width: 240}
+output: "Sources · Trust Signals · Red Flags" {class: wflag; shape: page; width: 240}
+
+submit -> decide
+decide -> fetchurl: "URL"
+decide -> parsetext: "text"
+decide -> ocr: "screenshot"
+fetchurl -> extract
+parsetext -> extract
+ocr -> extract
+extract -> retrieve
+retrieve -> found
+found -> corroborate: "Yes"
+found -> flag: "No"
+corroborate -> report
+flag -> report
+report -> output

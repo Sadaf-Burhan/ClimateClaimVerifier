@@ -1,0 +1,30 @@
+# Week 7 — Multimodal. ONE vision model (qwen2.5vl:7b), TWO entry points: the gated
+# on-platform vision (edge-case FP recovery, ~1%) and the NEW off-platform screenshot
+# upload (wider audience, with an honest degraded-signal tradeoff). Plus this week's
+# reader-signal reframes (eyewitness / forecast).
+# 3x2 grid with the shared model flanked by its two entry points.
+# Render: d2 --layout=dagre --theme=0 07-week7-vision.d2 07-week7-vision.svg
+
+...@_theme
+
+frame: "" {
+  grid-rows: 2
+  grid-columns: 3
+  horizontal-gap: 72
+  vertical-gap: 58
+  style.fill: transparent
+  style.stroke: transparent
+
+  # r1: gated, model, screenshot ; r2: reframes, tradeoff, extract
+  gated: "① Gated vision · on Bluesky posts\nqwen2.5vl:7b fires on ~1% (edge cases)\nreal photo rescues / cartoon reinforces\nsmall precision recovery on false positives" {class: vision}
+  model: "ONE vision model\nqwen2.5vl:7b\ntwo entry points" {class: vision; shape: hexagon}
+  screenshot: "② Screenshot · off-platform  (NEW)\nupload a Facebook / Insta / X post\n→ opens the scanner to a wider audience\nwhere misinformation actually lives" {class: vision}
+  reframes: "Reader-signal reframes (also this week)\neyewitness + forecast posts get reframed,\nnot red-flagged (conspiracy guard holds)" {class: reader}
+  tradeoff: "Honest tradeoff on screenshots\nno follower count, no verification,\nlossy OCR + hallucination risk\n→ an explicitly lower-confidence signal" {class: flag}
+  extract: "extract_from_image · 9-field schema\n(transcribe / infer / null — never guess)\n→ thin adapter → assess_claim()\nspine unchanged, one source-guard tweak" {class: reader}
+}
+
+frame.gated -> frame.model: {style.stroke: "#c07d19"; style.stroke-width: 2}
+frame.screenshot -> frame.model: {style.stroke: "#c07d19"; style.stroke-width: 2}
+frame.model -> frame.extract: "screenshot path" {style.stroke: "#c07d19"; style.stroke-width: 2}
+frame.extract -> frame.tradeoff: {style.stroke: "#b3261e"; style.stroke-width: 2}

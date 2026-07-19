@@ -1,0 +1,26 @@
+<section>
+  <p class="eyebrow">The problem</p>
+  <div class="diagram diagram-tall">
+    <img src="diagrams/00-problem.svg" alt="A viral climate post reaches a reader who has seconds to judge it. Three questions follow. The tempting answer — an LLM emitting TRUE/FALSE or a credibility score — was rejected in Week 2 in favour of surfacing signals and linking primary sources." />
+  </div>
+  <p class="takeaway fragment">
+    <strong>Language models are designed to reason over text; they do not possess an independent mechanism for verifying factual claims.</strong>
+    <strong>ClimateClaimVerifier retrieves evidence and trust signals to support informed human judgment.</strong>
+  </p>
+
+  <aside class="notes">
+    <p><strong>[0:15–1:00] — the problem, ~45s</strong></p>
+    <p>Climate misinformation spreads faster than fact-checkers can work. A reader
+    scrolling past a viral post has about three seconds and three real questions:
+    is this even a checkable claim? did anyone actually report this event? and who's
+    telling me?</p>
+    <p>The tempting build is an LLM that stamps TRUE or FALSE, or emits a credibility
+    score. <strong>This was not considered due to the limitations of LLMs</strong>
+    A 3-billion-parameter model has no ability to verify a fact — it
+    only has an ability to sound confident. And a credibility table — is a curation and bias burden you have to defend
+    forever.</p>
+    <p><em>[click fragment]</em></p>
+    <p>So: metal detector, not judge. It beeps. It doesn't tell you what you dug up.
+    That constraint is the spine of the whole system.</p>
+  </aside>
+</section>

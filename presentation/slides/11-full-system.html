@@ -1,0 +1,29 @@
+<section>
+  <p class="eyebrow w8">The whole system · architecture</p>
+  <div class="scroll-diagram">
+    <img src="images/architecture.png" style="width: 76%;"
+         onerror="this.onerror=function(){this.onerror=null;this.src='diagrams/08-full-system.svg';};this.src='images/architecture.svg';"
+         alt="The ClimateClaimVerifier architecture as a top-down flow. DATA SOURCES — Bluesky posts and GDELT climate articles — feed the INGESTION PIPELINE, which runs locally every 24 hours: collect, filter (non-LLM), normalize, embed, store. That fills the SHARED DATA LAYER: a SQLite store of posts, metadata, and labels, and a ChromaDB store of news evidence for semantic search. The shared data feeds two things in parallel: the AI CLASSIFICATION ENGINE on the Colab GPU (claim detection, image understanding, maintenance plus admin relabel) and the READER APPLICATION (input: a Bluesky link, a post from the feed, or an off-platform screenshot). Both route into the CLAIM ASSESSMENT ENGINE — evidence retrieval, source corroboration, trust signals, red-flag detection — which produces the USER REPORT: supporting evidence, relevant sources, trust signals, potential red flags, and no truth verdict." />
+  </div>
+  <p class="scroll-hint">↕ scroll inside the panel to see the full architecture</p>
+
+  <aside class="notes">
+    <p><strong>[4:35–5:05] — ~30s. Let the diagram breathe; walk the loops, don't read every function.</strong></p>
+    <p>Here's the whole system, top to bottom.</p>
+    <p><strong>Data sources</strong> — Bluesky posts and GDELT climate news — feed the
+    <strong>ingestion pipeline</strong>, which runs on my laptop every 24 hours: collect,
+    filter with the non-LLM topic filter, normalize, embed, store. That fills the
+    <strong>shared data layer</strong> — a database of posts and labels, and a vector
+    store of news evidence.</p>
+    <p>From there it splits. The <strong>classification engine</strong> runs the heavy
+    LLM work on a Colab GPU — claim detection, image understanding, and the maintenance
+    and admin-relabel pass. The <strong>reader application</strong> is the user-facing
+    entry, taking a Bluesky link, a post from the feed, or an off-platform screenshot.</p>
+    <p>Both funnel into the one <strong>assessment engine</strong> — retrieve evidence,
+    corroborate the source, build trust signals, detect red flags — which produces the
+    <strong>user report</strong>. Notice the bottom line, in red: supporting evidence,
+    sources, signals, flags — and <strong>no truth verdict</strong>. That's the whole
+    philosophy in one box. And notice there's <strong>no LoRA</strong>: it was measured
+    and left out.</p>
+  </aside>
+</section>
