@@ -74,9 +74,12 @@ def _domain_is_credible(dom: str, credible_domains: list[str]) -> bool:
 
 
 def _norm_url(url: str) -> str:
-    """Loose URL equality key: lowercase, drop scheme, the query string / fragment (tracking
-    params like ?utm_source, &CMP differ per reposter for the SAME article), and a trailing slash."""
+    """Loose URL equality key: lowercase, drop scheme, a leading www, the query string / fragment
+    (tracking params like ?utm_source, &CMP differ per reposter for the SAME article), and a
+    trailing slash — so www.bbc.com/x?utm=1 and bbc.com/x resolve to the same key."""
     u = re.sub(r"^https?://", "", (url or "").strip(), flags=re.I).lower()
+    if u.startswith("www."):
+        u = u[4:]
     u = u.split("#", 1)[0].split("?", 1)[0]
     return u[:-1] if u.endswith("/") else u
 
@@ -163,9 +166,12 @@ class ClimateEvidenceStore:
             for r in crows:
                 url, title = (r["external_url"] or "").strip(), (r["external_title"] or "").strip()
                 key = _norm_url(url)
-                if not url or not title or key in seen or not _domain_is_credible(_url_domain(url), credible):
+                hkey = " ".join(title.split()).lower()   # same headline via different URL forms -> one entry
+                if (not url or not title or key in seen or hkey in seen_head
+                        or not _domain_is_credible(_url_domain(url), credible)):
                     continue
                 seen.add(key)
+                seen_head.add(hkey)
                 loc = extract_location(title, _url_domain(url))
                 docs.append(with_location(title, loc))
                 metas.append({
