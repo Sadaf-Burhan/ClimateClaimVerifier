@@ -126,9 +126,15 @@ class ClimateEvidenceStore:
         # e.g. weatherbc.com -> British Columbia) and embed it INTO the document so dense
         # retrieval prefers same-region news. `location`/`date_int` also live in metadata.
         docs, metas, ids = [], [], []
+        seen_head: set[str] = set()   # dedup GDELT syndication: one story runs under many outlet URLs
         for r in rows:
-            if not (r["text"] or "").strip():
+            text = (r["text"] or "").strip()
+            if not text:
                 continue
+            hkey = " ".join(text.split()).lower()   # normalise whitespace + case
+            if hkey in seen_head:
+                continue
+            seen_head.add(hkey)
             loc = extract_location(r["text"], r["author"] or "")
             docs.append(with_location(r["text"], loc))
             metas.append({
@@ -175,20 +181,26 @@ class ClimateEvidenceStore:
                 ids.append("cite::" + key)
         con.close()
 
+        # ChromaDB caps a single add/upsert (~5461 rows — the SQLite variable limit), so
+        # batch under the client's max instead of one giant call.
+        try:
+            max_batch = self.client.get_max_batch_size()
+        except Exception:
+            max_batch = 5000
+        step = max(1, min(max_batch, 5000))
         if ids:
-            # ChromaDB caps a single add/upsert (~5461 rows — the SQLite variable limit), so
-            # upsert in batches under the client's max instead of one giant call.
-            try:
-                max_batch = self.client.get_max_batch_size()
-            except Exception:
-                max_batch = 5000
-            step = max(1, min(max_batch, 5000))
             for i in range(0, len(ids), step):
                 self.collection.upsert(
                     ids=ids[i:i + step],
                     documents=docs[i:i + step],
                     metadatas=metas[i:i + step],
                 )
+        # Reconcile: upsert only adds/updates, so drop any indexed ids no longer in this build
+        # (deleted articles, deduped syndication) — the collection MIRRORS the corpus, not just grows.
+        existing = set(self.collection.get(include=[])["ids"])
+        stale = list(existing - set(ids))
+        for i in range(0, len(stale), step):
+            self.collection.delete(ids=stale[i:i + step])
         return self.collection.count()
 
     def evidence_for_claim(self, claim_text: str, k: int = 5,
