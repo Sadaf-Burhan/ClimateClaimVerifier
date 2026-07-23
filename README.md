@@ -673,3 +673,9 @@ The reasoning behind the split — *logs accumulate, state gets versioned, deriv
 rebuilt* — is the load-bearing idea. A human decision (an admin override) is a log entry, not
 state: it can never be recomputed, so it must be git-tracked, never left to live only in the DB
 that the round-trip replaces.
+
+## License
+
+© 2026 Sadaf Burhan — **all rights reserved.** This repository is public for **viewing and
+evaluation only** (e.g. portfolio review); it is **not** open-source. You may read the code, but
+copying, reuse, modification, or redistribution requires written permission. See [LICENSE](LICENSE).
