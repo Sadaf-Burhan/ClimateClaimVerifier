@@ -30,6 +30,10 @@ data/chroma_evidence/
 # OS
 .DS_Store
 
+# Local test-case screenshots (third-party social posts — copyright; keep binaries out of the
+# public repo, same policy as data/image_eval/images/).
+Test_cases/
+
 # Exception: BOTH labeled eval sets ARE tracked (core project benchmarks; Colab clones them).
 # claim_eval_gold.csv = the FROZEN control (never grows); claim_eval.csv = the DYNAMIC set the
 # relabel loop appends to. Keeping them separate is what makes model drift and concept drift
